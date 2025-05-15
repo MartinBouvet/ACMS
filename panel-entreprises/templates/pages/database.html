@@ -1,0 +1,99 @@
+{% extends "index.html" %}
+
+{% block content %}
+<div class="database-page">
+    <h1>Base de données d'entreprises</h1>
+    
+    <div class="database-controls">
+        <div class="search-filter">
+            <input type="text" id="company-search" placeholder="Rechercher une entreprise...">
+            <button class="button primary" id="search-button">Rechercher</button>
+        </div>
+        
+        <div class="database-actions">
+            <button class="button secondary" id="import-button">
+                <span class="icon">📥</span>
+                Importer Excel
+            </button>
+            <button class="button primary" id="add-company-button">
+                <span class="icon">➕</span>
+                Ajouter une entreprise
+            </button>
+        </div>
+    </div>
+    
+    <div class="database-table">
+        <div class="table-header">
+            <div class="header-name">Nom</div>
+            <div class="header-location">Localisation</div>
+            <div class="header-certifications">Certifications</div>
+            <div class="header-ca">CA</div>
+            <div class="header-employees">Effectifs</div>
+            <div class="header-actions">Actions</div>
+        </div>
+        
+        <div class="table-body">
+            {% if companies %}
+                {% for company in companies %}
+                <div class="table-row">
+                    <div class="company-name">{{ company.name }}</div>
+                    <div class="company-location">{{ company.location }}</div>
+                    <div class="company-certifications">
+                        {% for cert in company.certifications %}
+                        <span class="certification-badge">{{ cert }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="company-ca">{{ company.ca }}</div>
+                    <div class="company-employees">{{ company.employees }}</div>
+                    <div class="company-actions">
+                        <button class="action-button view-button" data-id="{{ company.id }}">👁️</button>
+                        <button class="action-button edit-button" data-id="{{ company.id }}">✏️</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>Aucune entreprise trouvée. Importez un fichier Excel ou ajoutez manuellement une entreprise.</p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="table-pagination">
+            <div class="pagination-info">
+                <span>Affichage de 1-{{ companies|length }} sur {{ companies|length }} entreprises</span>
+            </div>
+            <div class="pagination-controls">
+                <button class="page-button" disabled>&lt;</button>
+                <button class="page-button active">1</button>
+                <button class="page-button" disabled>&gt;</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal d'import de fichier -->
+    <div id="import-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Importer des entreprises</h3>
+                <button class="close-button" id="close-import-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="import-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="excel-file">Sélectionnez un fichier Excel</label>
+                        <input type="file" id="excel-file" name="file" accept=".xlsx,.xls">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="button secondary" id="cancel-import">Annuler</button>
+                        <button type="submit" class="button primary" id="submit-import">Importer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/database.js') }}"></script>
+{% endblock %}

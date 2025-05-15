@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Entreprises EDF</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Favicon -->
+    <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.ico') }}" type="image/x-icon">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="{{ url_for('static', filename='img/logo-edf.svg') }}" alt="EDF Logo">
+                    <h2>Panel d'Entreprises</h2>
+                </div>
+                <button class="mobile-toggle">
+                    <span></span>
+                </button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div class="navigation-group">
+                    <h3>NAVIGATION</h3>
+                    <nav class="sidebar-nav">
+                        <a href="/" class="{% if page == 'dashboard' %}active{% endif %}">
+                            <span class="icon">📊</span>
+                            <span>Tableau de bord</span>
+                        </a>
+                        <a href="/search" class="{% if page == 'search' %}active{% endif %}">
+                            <span class="icon">🔍</span>
+                            <span>Recherche d'entreprises</span>
+                        </a>
+                        <a href="/database" class="{% if page == 'database' %}active{% endif %}">
+                            <span class="icon">💾</span>
+                            <span>Base de données</span>
+                        </a>
+                        <a href="#" class="{% if page == 'documents' %}active{% endif %}">
+                            <span class="icon">📄</span>
+                            <span>Documents types</span>
+                        </a>
+                        <a href="#" class="{% if page == 'settings' %}active{% endif %}">
+                            <span class="icon">⚙️</span>
+                            <span>Paramètres</span>
+                        </a>
+                    </nav>
+                </div>
+                
+                <div class="navigation-group">
+                    <h3>AIDE</h3>
+                    <nav class="sidebar-nav">
+                        <a href="#" class="{% if page == 'help' %}active{% endif %}">
+                            <span class="icon">❓</span>
+                            <span>Guide d'utilisation</span>
+                        </a>
+                        <a href="#" class="{% if page == 'support' %}active{% endif %}">
+                            <span class="icon">💬</span>
+                            <span>Support</span>
+                        </a>
+                    </nav>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <span class="user-avatar">JD</span>
+                    <span class="user-name">John Doe</span>
+                </div>
+            </div>
+        </aside>
+        
+        <div class="main-content">
+            <header class="header">
+                <div class="header-search">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" placeholder="Rechercher...">
+                </div>
+                <div class="header-actions">
+                    <button class="notification-btn">
+                        <span class="icon">🔔</span>
+                        <span class="badge">2</span>
+                    </button>
+                </div>
+            </header>
+            
+            <main class="content">
+                {% block content %}{% endblock %}
+            </main>
+            
+            <footer class="footer">
+                <p>&copy; 2025 EDF - Tous droits réservés</p>
+            </footer>
+        </div>
+    </div>
+    
+    <!-- Scripts communs -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    
+    <!-- Scripts spécifiques à la page -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

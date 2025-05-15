@@ -1,0 +1,154 @@
+{% extends "index.html" %}
+
+{% block content %}
+<div class="dashboard-page">
+    <div class="dashboard-header">
+        <h1>Tableau de bord</h1>
+        <a href="/search" class="button primary">
+            <span class="icon">➕</span>
+            Nouveau projet
+        </a>
+    </div>
+    
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <div class="stat-title">Projets en cours</div>
+            <div class="stat-value">8</div>
+            <div class="stat-trend positive">
+                <span class="trend-icon">↑</span>
+                <span>+12% vs mois dernier</span>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Projets terminés</div>
+            <div class="stat-value">16</div>
+            <div class="stat-trend positive">
+                <span class="trend-icon">↑</span>
+                <span>+8% vs mois dernier</span>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Valeur des contrats</div>
+            <div class="stat-value">2.4M€</div>
+            <div class="stat-trend negative">
+                <span class="trend-icon">↓</span>
+                <span>-3% vs mois dernier</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="dashboard-main">
+        <div class="dashboard-content">
+            <div class="dashboard-section">
+                <div class="section-header">
+                    <h2>Évolution des projets</h2>
+                    <div class="period-selector">
+                        <button class="period-option">Semaine</button>
+                        <button class="period-option active">Mois</button>
+                        <button class="period-option">Trimestre</button>
+                        <button class="period-option">Année</button>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <div class="chart-placeholder">
+                        <div class="placeholder-icon">📊</div>
+                        <p>Graphique d'évolution des projets</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-section">
+                <div class="section-header">
+                    <h2>Activités récentes</h2>
+                    <a href="#" class="view-all-link">Voir tout</a>
+                </div>
+                
+                <div class="activity-list">
+                    <div class="activity-item">
+                        <div class="activity-icon">📝</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Consultation lancée pour projet renovimax</div>
+                            <div class="activity-timestamp">il y a 2 heures</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon">👥</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Panel d'entreprises ajouté pour projet Hydral-25</div>
+                            <div class="activity-timestamp">il y a 5 heures</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon">📄</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Documents générés pour projet électrification</div>
+                            <div class="activity-timestamp">il y a 1 jour</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon">🔄</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Mise à jour des critères pour projet réfection</div>
+                            <div class="activity-timestamp">il y a 2 jours</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="dashboard-sidebar">
+            <div class="dashboard-section">
+                <div class="section-header">
+                    <h2>Projets à venir</h2>
+                    <a href="#" class="view-all-link">Voir tout</a>
+                </div>
+                
+                <div class="project-list">
+                    <div class="project-item">
+                        <div class="project-name">Réfection des échangeurs à plaques</div>
+                        <div class="project-details">
+                            <span>Échéance: 15/06/2025</span>
+                            <span class="project-status status-active">En cours</span>
+                        </div>
+                        <div class="project-details">
+                            <span>Budget: 120k€</span>
+                        </div>
+                    </div>
+                    
+                    <div class="project-item">
+                        <div class="project-name">Mise à niveau hydraulique local</div>
+                        <div class="project-details">
+                            <span>Échéance: 28/05/2025</span>
+                            <span class="project-status status-pending">À venir</span>
+                        </div>
+                        <div class="project-details">
+                            <span>Budget: 85k€</span>
+                        </div>
+                    </div>
+                    
+                    <div class="project-item">
+                        <div class="project-name">Vérification système électrique</div>
+                        <div class="project-details">
+                            <span>Échéance: 12/07/2025</span>
+                            <span class="project-status status-active">En cours</span>
+                        </div>
+                        <div class="project-details">
+                            <span>Budget: 95k€</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
