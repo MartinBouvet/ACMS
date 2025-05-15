@@ -74,7 +74,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
- // static/js/search.js (suite)
    /**
     * Gère la sélection d'un fichier
     * @param {File} file - Fichier sélectionné
@@ -513,7 +512,7 @@ document.addEventListener('DOMContentLoaded', function() {
                </thead>
                <tbody>
                    ${state.matchedCompanies.map((company, index) => `
-                       <tr class="company-row ${company.selected ? 'selected' : ''}">
+                       <tr class="company-row ${company.selected ? 'selected' : ''}" data-id="${company.id}">
                            <td>
                                <label class="checkbox">
                                    <input type="checkbox" ${company.selected ? 'checked' : ''} 
@@ -523,8 +522,8 @@ document.addEventListener('DOMContentLoaded', function() {
                            </td>
                            <td>
                                <div class="company-name-cell">
-                                   <div class="company-avatar" style="background-color: ${getRandomColor(company.id)}">
-                                       ${getInitials(company.name)}
+                                   <div class="company-avatar" style="background-color: ${utils.getRandomColor(company.id)}">
+                                       ${utils.getInitials(company.name)}
                                    </div>
                                    <div class="company-info">
                                        <span class="company-name">${company.name}</span>
@@ -541,7 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                </div>
                            </td>
                            <td>
-                               <div class="score-badge ${getScoreClass(company.score)}">
+                               <div class="score-badge ${utils.getScoreClass(company.score)}">
                                    ${company.score}%
                                </div>
                            </td>
@@ -794,162 +793,341 @@ document.addEventListener('DOMContentLoaded', function() {
        container.scrollIntoView({ behavior: 'smooth' });
    }
 
-   // Fonctions utilitaires
-
    /**
-    * Obtient une couleur aléatoire mais cohérente pour un ID
-    * @param {String} id - Identifiant
-    * @returns {String} - Couleur hexadécimale
+    * Affiche les détails d'une entreprise
+    * @param {String} companyId - ID de l'entreprise
     */
-   function getRandomColor(id) {
-       const colors = [
-           '#4285F4', '#34A853', '#FBBC05', '#EA4335',
-           '#673AB7', '#3F51B5', '#2196F3', '#03A9F4',
-           '#00BCD4', '#009688', '#4CAF50', '#8BC34A',
-           '#CDDC39', '#FFC107', '#FF9800', '#FF5722'
-       ];
+   function viewCompanyDetails(companyId) {
+       const company = state.matchedCompanies.find(c => c.id === companyId);
        
-       // Utiliser la somme des codes caractères de l'ID pour choisir une couleur
-       const sum = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-       return colors[sum % colors.length];
-   }
-
-   /**
-    * Obtient les initiales d'un nom
-    * @param {String} name - Nom
-    * @returns {String} - Initiales
-    */
-   function getInitials(name) {
-       return name
-           .split(' ')
-           .map(part => part[0])
-           .join('')
-           .toUpperCase()
-           .substring(0, 2);
-   }
-
-   /**
-    * Détermine la classe CSS pour un score
-    * @param {Number} score - Score (0-100)
-    * @returns {String} - Classe CSS
-    */
-   function getScoreClass(score) {
-       if (score >= 80) return 'high';
-       if (score >= 60) return 'medium';
-       return 'low';
-   }
-
-   /**
-    * Affiche une alerte
-    * @param {String} type - Type d'alerte (success, error, warning, info)
-    * @param {String} message - Message à afficher
-    */
-   function showAlert(type, message) {
-       // Créer l'élément d'alerte
-       const alert = document.createElement('div');
-       alert.className = `alert alert-${type}`;
-       alert.innerHTML = `
-           <div class="alert-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</div>
-           <div class="alert-message">${message}</div>
-           <button class="alert-close">×</button>
-       `;
+       if (!company) return;
        
-       // Ajouter au DOM
-       document.body.appendChild(alert);
-       
-       // Gérer la fermeture
-       alert.querySelector('.alert-close').addEventListener('click', () => {
-           document.body.removeChild(alert);
-       });
-       
-       // Auto-fermeture après 5 secondes
-       setTimeout(() => {
-           if (document.body.contains(alert)) {
-               document.body.removeChild(alert);
-           }
-       }, 5000);
-   }
-
-   /**
-    * Affiche l'indicateur de chargement
-    * @param {String} message - Message à afficher
-    */
-   function showLoading(message) {
-       // Créer l'élément de chargement
-       const loading = document.createElement('div');
-       loading.className = 'loading-overlay';
-       loading.innerHTML = `
-           <div class="loading-content">
-               <div class="spinner"></div>
-               <p>${message || 'Chargement en cours...'}</p>
+       // Créer un modal pour afficher les détails
+       const modal = document.createElement('div');
+       modal.className = 'modal';
+       modal.innerHTML = `
+           <div class="modal-content">
+               <div class="modal-header">
+                   <h3>Détails de l'entreprise</h3>
+                   <button class="close-button">&times;</button>
+               </div>
+               <div class="modal-body">
+                   <div class="company-details">
+                       <div class="company-header">
+                           <div class="company-avatar" style="background-color: ${utils.getRandomColor(company.id)}">
+                               ${utils.getInitials(company.name)}
+                           </div>
+                           <div class="company-title">
+                               <h2>${company.name}</h2>
+                               <p>${company.location}</p>
+                           </div>
+                       </div>
+                       
+                       <div class="company-info-grid">
+                           <div class="info-item">
+                               <div class="info-label">Score de correspondance</div>
+                               <div class="info-value">
+                                   <div class="score-badge ${utils.getScoreClass(company.score)}">
+                                       ${company.score}%
+                                   </div>
+                               </div>
+                           </div>
+                           
+                           <div class="info-item">
+                               <div class="info-label">Chiffre d'affaires</div>
+                               <div class="info-value">${company.ca}</div>
+                           </div>
+                           
+                           <div class="info-item">
+                               <div class="info-label">Effectifs</div>
+                               <div class="info-value">${company.employees}</div>
+                           </div>
+                           
+                           <div class="info-item">
+                               <div class="info-label">Certifications</div>
+                               <div class="info-value">
+                                   <div class="certifications-list">
+                                       ${(company.certifications || []).map(cert => 
+                                           `<span class="certification-badge">${cert}</span>`
+                                       ).join('')}
+                                   </div>
+                               </div>
+                           </div>
+                           
+                           <div class="info-item">
+                               <div class="info-label">Expérience</div>
+                               <div class="info-value">${company.experience || 'Non spécifié'}</div>
+                           </div>
+                       </div>
+                       
+                       <div class="match-details">
+                           <h4>Détails des critères</h4>
+                           <div class="match-criteria-list">
+                               ${Object.entries(company.matchDetails || {}).map(([criterion, score]) => `
+                                   <div class="match-criterion">
+                                       <div class="criterion-name">${criterion}</div>
+                                       <div class="criterion-score">
+                                           <div class="score-progress">
+                                               <div class="progress-bar" style="width: ${score}%"></div>
+                                           </div>
+                                           <div class="score-value">${score}%</div>
+                                       </div>
+                                   </div>
+                               `).join('')}
+                           </div>
+                       </div>
+                   </div>
+               </div>
+               <div class="modal-footer">
+                   <button class="button secondary" data-close-modal>Fermer</button>
+                   <button class="button primary" onclick="window.searchApp.toggleCompanySelection('${company.id}', ${!company.selected})">
+                       ${company.selected ? 'Déselectionner' : 'Sélectionner'} l'entreprise
+                   </button>
+               </div>
            </div>
        `;
        
-       // Ajouter au DOM
-       document.body.appendChild(loading);
+       // Ajouter le modal au DOM
+       document.body.appendChild(modal);
+       
+       // Gérer la fermeture du modal
+       const closeButton = modal.querySelector('.close-button');
+       const closeModalButton = modal.querySelector('[data-close-modal]');
+       
+       const closeModal = () => {
+           document.body.removeChild(modal);
+       };
+       
+       closeButton.addEventListener('click', closeModal);
+       closeModalButton.addEventListener('click', closeModal);
+       
+       // Fermer le modal en cliquant à l'extérieur
+       modal.addEventListener('click', e => {
+           if (e.target === modal) closeModal();
+       });
    }
 
    /**
-    * Cache l'indicateur de chargement
+    * Ajoute une entreprise manuellement
     */
-   function hideLoading() {
-       const loading = document.querySelector('.loading-overlay');
-       if (loading) {
-           document.body.removeChild(loading);
+   function addCompanyManually() {
+       // Créer un modal pour ajouter une entreprise
+       const modal = document.createElement('div');
+       modal.className = 'modal';
+       modal.innerHTML = `
+           <div class="modal-content">
+               <div class="modal-header">
+                   <h3>Ajouter une entreprise</h3>
+                   <button class="close-button">&times;</button>
+               </div>
+               <div class="modal-body">
+                   <div class="form-group">
+                       <label for="company-name">Nom de l'entreprise</label>
+                       <input type="text" id="company-name" placeholder="Nom de l'entreprise" required>
+                   </div>
+                   <div class="form-group">
+                       <label for="company-location">Localisation</label>
+                       <input type="text" id="company-location" placeholder="Ville, Département">
+                   </div>
+                   <div class="form-group">
+                       <label for="company-ca">Chiffre d'affaires</label>
+                       <input type="text" id="company-ca" placeholder="Ex: 1.5M€">
+                   </div>
+                   <div class="form-group">
+                       <label for="company-employees">Effectifs</label>
+                       <input type="text" id="company-employees" placeholder="Ex: 25">
+                   </div>
+                   <div class="form-group">
+                       <label>Certifications</label>
+                       <div class="certifications-checkboxes">
+                           <label class="checkbox-label">
+                               <input type="checkbox" value="MASE"> MASE
+                           </label>
+                           <label class="checkbox-label">
+                               <input type="checkbox" value="ISO 9001"> ISO 9001
+                           </label>
+                           <label class="checkbox-label">
+                               <input type="checkbox" value="ISO 14001"> ISO 14001
+                           </label>
+                           <label class="checkbox-label">
+                               <input type="checkbox" value="QUALIBAT"> QUALIBAT
+                           </label>
+                       </div>
+                   </div>
+               </div>
+               <div class="modal-footer">
+                   <button class="button secondary" data-close-modal>Annuler</button>
+                   <button class="button primary" id="save-company">Ajouter</button>
+               </div>
+           </div>
+       `;
+       
+       // Ajouter le modal au DOM
+       document.body.appendChild(modal);
+       
+       // Gérer la fermeture du modal
+       const closeButton = modal.querySelector('.close-button');
+       const closeModalButton = modal.querySelector('[data-close-modal]');
+       const saveButton = modal.querySelector('#save-company');
+       
+       const closeModal = () => {
+           document.body.removeChild(modal);
+       };
+       
+       closeButton.addEventListener('click', closeModal);
+       closeModalButton.addEventListener('click', closeModal);
+       
+       // Enregistrer l'entreprise
+       saveButton.addEventListener('click', () => {
+           const name = modal.querySelector('#company-name').value.trim();
+           const location = modal.querySelector('#company-location').value.trim();
+           const ca = modal.querySelector('#company-ca').value.trim();
+           const employees = modal.querySelector('#company-employees').value.trim();
+           
+           if (!name) {
+               showAlert('error', 'Le nom de l\'entreprise est requis.');
+               return;
+           }
+           
+           // Récupérer les certifications cochées
+           const certifications = [];
+           modal.querySelectorAll('.certifications-checkboxes input:checked').forEach(checkbox => {
+               certifications.push(checkbox.value);
+           });
+           
+           // Créer l'objet entreprise
+           const newCompany = {
+               id: 'manual_' + Date.now(),
+               name,
+               location: location || 'Non spécifié',
+               ca: ca || 'Non spécifié',
+               employees: employees || 'Non spécifié',
+               certifications,
+               score: 100,  // Score par défaut pour les entreprises ajoutées manuellement
+               selected: true,
+               matchDetails: {
+                   'Ajout manuel': 100
+               }
+           };
+           
+           // Ajouter l'entreprise à l'état
+           state.matchedCompanies.push(newCompany);
+           state.selectedCompanies.push(newCompany);
+           
+           // Mettre à jour l'affichage
+           const panel = document.querySelector('.step-panel[data-step="3"]');
+           if (panel) {
+               renderStep3Content(panel);
+           }
+           
+           // Fermer le modal
+           closeModal();
+           
+           // Afficher une confirmation
+           showAlert('success', 'Entreprise ajoutée avec succès.');
+       });
+       
+       // Fermer le modal en cliquant à l'extérieur
+       modal.addEventListener('click', e => {
+           if (e.target === modal) closeModal();
+       });
+   }
+
+   /**
+    * Active/désactive la sélection d'une entreprise
+    * @param {String} companyId - ID de l'entreprise
+    * @param {Boolean} selected - État de sélection
+    */
+   function toggleCompanySelection(companyId, selected) {
+       // Mettre à jour l'état des entreprises
+       state.selectedCompanies = state.selectedCompanies.map(company => 
+           company.id === companyId ? { ...company, selected } : company
+       );
+       
+       // Mettre à jour l'affichage du tableau
+       const row = document.querySelector(`.company-row[data-id="${companyId}"]`);
+       if (row) {
+           if (selected) {
+               row.classList.add('selected');
+           } else {
+               row.classList.remove('selected');
+           }
+           
+           const checkbox = row.querySelector('input[type="checkbox"]');
+           if (checkbox) {
+               checkbox.checked = selected;
+           }
        }
+       
+       // Mettre à jour le compteur de sélection
+       const countElement = document.querySelector('.selected-count');
+       if (countElement) {
+           const selectedCount = state.selectedCompanies.filter(c => c.selected).length;
+           countElement.textContent = `${selectedCount} entreprises sélectionnées`;
+       }
+   }
+
+   /**
+    * Met à jour les données du projet
+    * @param {String} field - Champ à modifier
+    * @param {String} value - Nouvelle valeur
+    */
+   function updateProjectData(field, value) {
+       state.projectData[field] = value;
+   }
+
+   /**
+    * Met à jour le poids d'un critère d'attribution
+    * @param {Number} id - ID du critère
+    * @param {Number} weight - Nouveau poids
+    */
+   function updateAttributionWeight(id, weight) {
+       state.attributionCriteria = state.attributionCriteria.map(criterion => 
+           criterion.id == id ? { ...criterion, weight: parseInt(weight) } : criterion
+       );
+       
+       // Mettre à jour l'affichage des poids
+       const weightElement = document.querySelector(`.attribution-criterion[data-id="${id}"] .weight-value`);
+       if (weightElement) {
+           weightElement.textContent = `${weight}%`;
+       }
+       
+       // Mettre à jour le total
+       const totalWeight = state.attributionCriteria.reduce((sum, criterion) => sum + criterion.weight, 0);
+       const totalElement = document.querySelector('.attribution-total');
+       
+       if (totalElement) {
+           totalElement.innerHTML = `
+               <span>Total: ${totalWeight}%</span>
+               ${totalWeight === 100 
+                   ? '<span class="valid-icon">✓</span>' 
+                   : '<span class="invalid-icon">⚠️</span>'}
+           `;
+           totalElement.className = `attribution-total ${totalWeight === 100 ? 'valid' : 'invalid'}`;
+       }
+   }
+
+   /**
+    * Active/désactive un critère de sélection
+    * @param {Number} id - ID du critère
+    * @param {Boolean} checked - État d'activation
+    */
+   function toggleSelectionCriterion(id, checked) {
+       state.selectionCriteria = state.selectionCriteria.map(criterion => 
+           criterion.id == id ? { ...criterion, selected: checked } : criterion
+       );
    }
 
    // Exposer certaines fonctions à l'extérieur
    window.searchApp = {
        goToStep,
-       toggleSelectionCriterion: (id, checked) => {
-           state.selectionCriteria = state.selectionCriteria.map(criterion => 
-               criterion.id == id ? { ...criterion, selected: checked } : criterion
-           );
-       },
-    // static/js/search.js (suite finale)
-       updateAttributionWeight: (id, value) => {
-           state.attributionCriteria = state.attributionCriteria.map(criterion => 
-               criterion.id == id ? { ...criterion, weight: parseInt(value) } : criterion
-           );
-           
-           // Mettre à jour l'affichage des poids
-           const weightElement = document.querySelector(`.attribution-criterion[data-id="${id}"] .weight-value`);
-           if (weightElement) {
-               weightElement.textContent = `${value}%`;
-           }
-           
-           // Mettre à jour le total
-           const totalWeight = state.attributionCriteria.reduce((sum, criterion) => sum + criterion.weight, 0);
-           const totalElement = document.querySelector('.attribution-total');
-           
-           if (totalElement) {
-               totalElement.innerHTML = `
-                   <span>Total: ${totalWeight}%</span>
-                   ${totalWeight === 100 
-                       ? '<span class="valid-icon">✓</span>' 
-                       : '<span class="invalid-icon">⚠️</span>'}
-               `;
-               totalElement.className = `attribution-total ${totalWeight === 100 ? 'valid' : 'invalid'}`;
-           }
-       },
-       toggleCompanySelection: (id, checked) => {
-           state.selectedCompanies = state.selectedCompanies.map(company => 
-               company.id === id ? { ...company, selected: checked } : company
-           );
-           
-           // Mettre à jour l'affichage
-           const row = document.querySelector(`.company-row[data-id="${id}"]`);
-           if (row) {
-               if (checked) {
-                   row.classList.add('selected');
-               } else {
-                   row.classList.remove('selected');
-               }
-           }
-           
-           // Mettre à jour le compteur de sélection
-           const countElement = document.querySelector('.selected-count');
-           if (countElement) {
-               const selectedCount = state.selectedCompanies.filter(c => c.selected).length;
-               countElement.textContent = `${selectedCount} entreprises sélectionnées
+       findMatchingCompanies,
+       toggleCompanySelection,
+       viewCompanyDetails,
+       addCompanyManually,
+       generateDocuments,
+       updateProjectData,
+       updateAttributionWeight,
+       toggleSelectionCriterion
+   };
+});

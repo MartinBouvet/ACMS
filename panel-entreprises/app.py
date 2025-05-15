@@ -9,7 +9,7 @@ import traceback
 
 # Import des utilitaires
 from utils.excel_parser import load_companies_from_excel
-from utils.mistral_api import analyze_document, generate_document
+from utils.mistral_api import analyze_document, generate_document, get_agent_answer
 from utils.company_matcher import match_companies
 from utils.document_generator import create_document
 
@@ -27,7 +27,11 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_DOCS'], exist_ok=True)
 os.makedirs('data', exist_ok=True)
-
+# Au début d'app.py
+if __name__ == '__main__':
+    print("Démarrage du serveur...")
+    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("Serveur arrêté")
 # Charger les entreprises à partir du fichier Excel
 COMPANIES = []
 try:
@@ -115,14 +119,27 @@ def parse_document():
             # Lire le contenu du fichier
             text = ""
             if filename.endswith(('.docx', '.doc')):
-                # Pour les fichiers Word, on pourrait ajouter python-docx
-                text = f"[Contenu du document {filename}]"
+                try:
+                    from docx import Document
+                    doc = Document(file_path)
+                    text = "\n".join([para.text for para in doc.paragraphs])
+                except ImportError:
+                    text = f"[Contenu du document {filename} - Module python-docx manquant]"
             elif filename.endswith('.pdf'):
-                # Pour les fichiers PDF, on pourrait ajouter PyPDF2
-                text = f"[Contenu du PDF {filename}]"
+                try:
+                    import PyPDF2
+                    with open(file_path, 'rb') as f:
+                        pdf_reader = PyPDF2.PdfReader(f)
+                        text = "\n".join([page.extract_text() for page in pdf_reader.pages])
+                except ImportError:
+                    text = f"[Contenu du PDF {filename} - Module PyPDF2 manquant]"
             elif filename.endswith('.txt'):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     text = f.read()
+            elif filename.endswith(('.xlsx', '.xls')):
+                # Pour les fichiers Excel
+                df = pd.read_excel(file_path)
+                text = df.to_string()
             else:
                 text = f"[Contenu du fichier {filename}]"
             
@@ -173,6 +190,21 @@ def api_find_matching_companies():
     except Exception as e:
         print(f"Erreur lors du matching: {e}")
         print(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/ia/agent-query', methods=['POST'])
+def api_agent_query():
+    data = request.json
+    question = data.get('question', '')
+    
+    if not question:
+        return jsonify({"success": False, "message": "La question est requise"})
+    
+    try:
+        # Interroger l'agent Mistral
+        answer = get_agent_answer(question, app.config['MISTRAL_API_KEY'], app.config['MISTRAL_AGENT_ID'])
+        return jsonify({"success": True, "data": {"answer": answer}})
+    except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/documents/generate', methods=['POST'])

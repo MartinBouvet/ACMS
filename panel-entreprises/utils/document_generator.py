@@ -1,5 +1,3 @@
-# Utility to generate documents
-# utils/document_generator.py
 import os
 import time
 from datetime import datetime
@@ -26,6 +24,7 @@ def create_document(template_type, project_data, companies, output_dir, api_key)
         # Générer le contenu du document avec l'API Mistral
         content = generate_document(template_type, {
             'title': project_data.get('title', 'Projet EDF'),
+            'description': project_data.get('description', ''),
             'cahierDesCharges': project_data.get('cahierDesCharges', ''),
             'selectionCriteria': project_data.get('selectionCriteria', []),
             'attributionCriteria': project_data.get('attributionCriteria', []),
