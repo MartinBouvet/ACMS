@@ -5,6 +5,9 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Initialiser les composants du tableau de bord
     initDashboard();
+    
+    // Initialiser les onglets
+    initTabs();
 });
 
 /**
@@ -14,6 +17,7 @@ function initDashboard() {
     initCharts();
     initActivityUpdates();
     initPeriodSelector();
+    initProjectFilters();
 }
 
 /**
@@ -22,6 +26,11 @@ function initDashboard() {
 function initCharts() {
     // Simuler un graphique d'évolution des projets
     renderProjectEvolutionChart();
+    
+    // Initialiser les graphiques des onglets Analytics
+    if (document.getElementById('tab-analytics')) {
+        initAnalyticsCharts();
+    }
 }
 
 /**
@@ -44,7 +53,6 @@ function initActivityUpdates() {
 
 /**
  * Ajoute une nouvelle activité à la liste
- * 
  * @param {HTMLElement} container - Conteneur de la liste d'activités
  */
 function addNewActivity(container) {
@@ -121,7 +129,6 @@ function initPeriodSelector() {
 
 /**
  * Met à jour le graphique en fonction de la période sélectionnée
- * 
  * @param {string} period - Période sélectionnée (semaine, mois, trimestre, année)
  */
 function updateChartForPeriod(period) {
@@ -131,7 +138,6 @@ function updateChartForPeriod(period) {
 
 /**
  * Rend le graphique d'évolution des projets
- * 
  * @param {string} period - Période à afficher (défaut: 'mois')
  */
 function renderProjectEvolutionChart(period = 'mois') {
@@ -149,65 +155,128 @@ function renderProjectEvolutionChart(period = 'mois') {
             <p class="chart-note">Cette fonctionnalité sera implémentée avec Chart.js</p>
         </div>
     `;
+}
+
+/**
+ * Initialise les filtres de projets
+ */
+function initProjectFilters() {
+    const statusFilter = document.getElementById('project-status-filter');
+    const dateFilter = document.getElementById('project-date-filter');
+    const searchInput = document.getElementById('project-search');
     
-    // Exemple d'implémentation avec Chart.js (commenté pour le moment)
-    /*
-    // Données simulées
-    const labels = {
-        'semaine': ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
-        'mois': ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'],
-        'trimestre': ['T1', 'T2', 'T3', 'T4'],
-        'année': ['2021', '2022', '2023', '2024', '2025']
-    };
+    if (statusFilter) {
+        statusFilter.addEventListener('change', filterProjects);
+    }
     
-    const data = {
-        'semaine': [2, 5, 3, 7, 4, 1, 3],
-        'mois': [4, 6, 8, 9, 7, 6, 10, 8, 7, 9, 8, 10],
-        'trimestre': [15, 22, 19, 25],
-        'année': [45, 60, 75, 82, 95]
-    };
+    if (dateFilter) {
+        dateFilter.addEventListener('change', filterProjects);
+    }
     
-    // Créer le canvas pour le graphique
-    chartContainer.innerHTML = '<canvas id="projectEvolutionChart"></canvas>';
-    const ctx = document.getElementById('projectEvolutionChart').getContext('2d');
+    if (searchInput) {
+        searchInput.addEventListener('input', filterProjects);
+    }
+}
+
+/**
+ * Filtre les projets selon les critères sélectionnés
+ */
+function filterProjects() {
+    const statusFilter = document.getElementById('project-status-filter');
+    const dateFilter = document.getElementById('project-date-filter');
+    const searchInput = document.getElementById('project-search');
     
-    // Créer le graphique
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels[period],
-            datasets: [{
-                label: 'Nombre de projets',
-                data: data[period],
-                backgroundColor: 'rgba(0, 114, 188, 0.2)',
-                borderColor: 'rgba(0, 114, 188, 1)',
-                borderWidth: 2,
-                tension: 0.3,
-                pointBackgroundColor: 'rgba(0, 114, 188, 1)'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: {
-                        color: 'rgba(0, 0, 0, 0.05)'
-                    }
-                },
-                x: {
-                    grid: {
-                        display: false
-                    }
-                }
-            }
+    if (!statusFilter || !dateFilter || !searchInput) return;
+    
+    const statusValue = statusFilter.value;
+    const dateValue = dateFilter.value;
+    const searchValue = searchInput.value.toLowerCase();
+    
+    const projectRows = document.querySelectorAll('.projects-table tbody tr');
+    
+    projectRows.forEach(row => {
+        const projectName = row.cells[0].textContent.toLowerCase();
+        const projectStatus = row.cells[1].textContent.toLowerCase();
+        
+        // Filtrer par statut
+        const matchesStatus = statusValue === 'all' || 
+                             (statusValue === 'active' && projectStatus.includes('en cours')) ||
+                             (statusValue === 'pending' && projectStatus.includes('à venir')) ||
+                             (statusValue === 'completed' && projectStatus.includes('terminé'));
+        
+        // Filtrer par recherche
+        const matchesSearch = searchValue === '' || projectName.includes(searchValue);
+        
+        // Date filter is a bit more complex in real implementation
+        // Here's a simplified version that always matches
+        const matchesDate = true;
+        
+        // Afficher ou masquer la ligne
+        if (matchesStatus && matchesSearch && matchesDate) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
         }
     });
-    */
+}
+
+/**
+ * Initialise les graphiques pour l'onglet Analyses
+ */
+function initAnalyticsCharts() {
+    const chartContainers = document.querySelectorAll('#tab-analytics .chart-container');
+    
+    chartContainers.forEach(container => {
+        // Pour l'instant, on garde les placeholders
+        // Dans une implémentation réelle, on utiliserait Chart.js
+    });
+}
+
+/**
+ * Initialise les onglets du tableau de bord
+ */
+function initTabs() {
+    const tabs = document.querySelectorAll('.dashboard-tab');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-tab');
+            switchTab(tabId);
+        });
+    });
+}
+
+/**
+ * Change l'onglet actif
+ * @param {string} tabId - ID de l'onglet à activer
+ */
+function switchTab(tabId) {
+    // Désactiver tous les onglets
+    document.querySelectorAll('.dashboard-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Désactiver tous les contenus d'onglets
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    // Activer l'onglet sélectionné
+    const selectedTab = document.querySelector(`.dashboard-tab[data-tab="${tabId}"]`);
+    if (selectedTab) {
+        selectedTab.classList.add('active');
+    }
+    
+    // Activer le contenu de l'onglet sélectionné
+    const selectedContent = document.getElementById(`tab-${tabId}`);
+    if (selectedContent) {
+        selectedContent.classList.add('active');
+    }
 }
 
 // Exporter les fonctions pour une utilisation externe
 window.dashboardUtils = {
-    updateChartForPeriod
+    updateChartForPeriod,
+    switchTab,
+    filterProjects
 };

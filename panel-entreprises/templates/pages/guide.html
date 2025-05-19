@@ -1,0 +1,109 @@
+{% extends "index.html" %}
+
+{% block content %}
+<div class="guide-page">
+    <h1>Guide d'utilisation</h1>
+    
+    <div class="guide-content">
+        <div class="guide-section">
+            <h2>Introduction</h2>
+            <p>
+                Bienvenue dans le guide d'utilisation de l'application Panel Entreprises EDF.
+                Cet outil vous aide à sélectionner des entreprises adaptées pour vos projets &lt;400K euros
+                et à générer automatiquement les documents de consultation nécessaires.
+            </p>
+        </div>
+        
+        <div class="guide-widgets">
+            <div class="guide-widget">
+                <div class="widget-icon">🔍</div>
+                <div class="widget-content">
+                    <h3>1. Téléchargez votre cahier des charges</h3>
+                    <p>
+                        Dans l'onglet "Recherche d'entreprises", déposez votre cahier des charges.
+                        L'IA analysera le document pour en extraire les informations clés.
+                    </p>
+                    <div class="widget-image">
+                        <img src="{{ url_for('static', filename='img/guide/step1.png') }}" alt="Téléchargement du cahier des charges">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="guide-widget">
+                <div class="widget-icon">📋</div>
+                <div class="widget-content">
+                    <h3>2. Validez les critères proposés</h3>
+                    <p>
+                        Vérifiez et ajustez les critères de sélection et d'attribution 
+                        automatiquement extraits par l'IA. Ajustez les pondérations si nécessaire.
+                    </p>
+                    <div class="widget-image">
+                        <img src="{{ url_for('static', filename='img/guide/step2.png') }}" alt="Validation des critères">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="guide-widget">
+                <div class="widget-icon">👥</div>
+                <div class="widget-content">
+                    <h3>3. Sélectionnez les entreprises</h3>
+                    <p>
+                        L'IA vous propose un panel d'entreprises correspondant à vos critères.
+                        Vous pouvez consulter les détails et ajuster la sélection selon vos besoins.
+                    </p>
+                    <div class="widget-image">
+                        <img src="{{ url_for('static', filename='img/guide/step3.png') }}" alt="Sélection des entreprises">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="guide-widget">
+                <div class="widget-icon">📄</div>
+                <div class="widget-content">
+                    <h3>4. Générez les documents</h3>
+                    <p>
+                        Générez automatiquement les documents de consultation : projet de marché,
+                        règlement de consultation, grille d'évaluation et lettre de consultation.
+                    </p>
+                    <div class="widget-image">
+                        <img src="{{ url_for('static', filename='img/guide/step4.png') }}" alt="Génération des documents">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="guide-section">
+            <h2>Conseils d'utilisation</h2>
+            <div class="guide-tips">
+                <div class="tip">
+                    <div class="tip-icon">💡</div>
+                    <div class="tip-content">
+                        <h4>Cahier des charges détaillé</h4>
+                        <p>Plus votre cahier des charges est précis, plus les résultats de l'IA seront pertinents.</p>
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <div class="tip-icon">💡</div>
+                    <div class="tip-content">
+                        <h4>Critères d'attribution</h4>
+                        <p>Veillez à ce que le total des pondérations soit égal à 100%.</p>
+                    </div>
+                </div>
+                
+                <div class="tip">
+                    <div class="tip-icon">💡</div>
+                    <div class="tip-content">
+                        <h4>Documents types</h4>
+                        <p>Consultez l'onglet "Documents types" pour accéder à des modèles préétablis.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/guide.js') }}"></script>
+{% endblock %}

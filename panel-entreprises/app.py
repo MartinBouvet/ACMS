@@ -6,6 +6,7 @@ import json
 import pandas as pd
 from werkzeug.utils import secure_filename
 import traceback
+from datetime import datetime
 
 # Import des utilitaires
 from utils.excel_parser import load_companies_from_excel
@@ -18,6 +19,7 @@ app = Flask(__name__)
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['GENERATED_DOCS'] = 'generated'
+app.config['TEMPLATE_DOCS'] = 'templates_docs'  # Nouveau dossier pour les documents types
 app.config['COMPANIES_EXCEL'] = os.path.join('data', 'ACMS Publipostage FINAL V4.xlsx')
 app.config['MISTRAL_API_KEY'] = 'cec930ebb79846da94d2cf5028177995'
 app.config['MISTRAL_AGENT_ID'] = '67f785d59e82260f684a217a'
@@ -26,6 +28,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 # Créer les dossiers nécessaires
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_DOCS'], exist_ok=True)
+os.makedirs(app.config['TEMPLATE_DOCS'], exist_ok=True)
 os.makedirs('data', exist_ok=True)
 
 # Charger les entreprises à partir du fichier Excel
@@ -60,7 +63,52 @@ def search():
 def database():
     return render_template('pages/database.html', page='database', companies=COMPANIES)
 
-# Routes API
+# Nouvelles routes pour les pages supplémentaires
+@app.route('/guide')
+def guide():
+    return render_template('pages/guide.html', page='guide')
+
+@app.route('/support')
+def support():
+    return render_template('pages/support.html', page='support')
+
+@app.route('/documents')
+def documents():
+    # Récupérer la liste des documents types
+    template_docs = []
+    try:
+        for filename in os.listdir(app.config['TEMPLATE_DOCS']):
+            file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
+            if os.path.isfile(file_path):
+                # Déterminer le type de document
+                doc_type = 'autre'
+                if 'reglement' in filename.lower():
+                    doc_type = 'reglement'
+                elif 'marche' in filename.lower() or 'cpa' in filename.lower():
+                    doc_type = 'marche'
+                elif 'lettre' in filename.lower():
+                    doc_type = 'lettre'
+                elif 'grille' in filename.lower() or 'evalua' in filename.lower():
+                    doc_type = 'grille'
+                
+                # Obtenir la date de modification
+                mod_time = os.path.getmtime(file_path)
+                mod_date = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y')
+                
+                template_docs.append({
+                    'id': f"doc_{len(template_docs) + 1}",
+                    'name': filename.split('.')[0],
+                    'fileName': filename,
+                    'type': doc_type,
+                    'date': mod_date,
+                    'url': f"/api/documents/template/download/{filename}"
+                })
+    except Exception as e:
+        print(f"Erreur lors de la récupération des documents types: {e}")
+    
+    return render_template('pages/documents.html', page='documents', documents=template_docs)
+
+# Routes API existantes
 @app.route('/api/companies', methods=['GET'])
 def get_all_companies():
     try:
@@ -234,6 +282,190 @@ def api_generate_document():
 @app.route('/api/documents/download/<filename>')
 def download_document(filename):
     return send_from_directory(app.config['GENERATED_DOCS'], filename)
+
+# Nouvelles routes API pour les documents types
+@app.route('/api/documents/template/upload', methods=['POST'])
+def upload_template_document():
+    if 'file' not in request.files:
+        return jsonify({"success": False, "message": "Aucun fichier fourni"})
+        
+    file = request.files['file']
+    name = request.form.get('name', '')
+    doc_type = request.form.get('type', 'autre')
+    description = request.form.get('description', '')
+    
+    if file.filename == '':
+        return jsonify({"success": False, "message": "Aucun fichier sélectionné"})
+        
+    if file and allowed_file(file.filename):
+        # Créer un nom de fichier basé sur le type et le nom fourni
+        base_name = secure_filename(name)
+        extension = file.filename.rsplit('.', 1)[1].lower()
+        
+        # Ajouter un préfixe selon le type
+        prefix_map = {
+            'reglement': 'REG',
+            'marche': 'MAR',
+            'lettre': 'LET',
+            'grille': 'GRIL',
+            'autre': 'DOC'
+        }
+        prefix = prefix_map.get(doc_type, 'DOC')
+        
+        # Créer un horodatage
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Assembler le nom de fichier final
+        filename = f"{prefix}_{base_name}_{timestamp}.{extension}"
+        file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
+        
+        # Enregistrer le fichier
+        file.save(file_path)
+        
+        # Enregistrer les métadonnées (dans une implémentation complète, on utiliserait une base de données)
+        # Ici, on utilise un fichier JSON simple pour démonstration
+        metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
+        metadata = {}
+        
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+            except:
+                metadata = {}
+        
+        metadata[filename] = {
+            'name': name,
+            'type': doc_type,
+            'description': description,
+            'uploadDate': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({
+            "success": True,
+            "message": "Document type téléversé avec succès",
+            "data": {
+                "id": f"doc_{len(metadata)}",
+                "name": name,
+                "fileName": filename,
+                "type": doc_type,
+                "url": f"/api/documents/template/download/{filename}"
+            }
+        })
+    
+    return jsonify({"success": False, "message": "Type de fichier non autorisé"})
+
+@app.route('/api/documents/template/<document_id>', methods=['GET'])
+def get_template_document(document_id):
+    # Dans une implémentation complète, on récupérerait les détails du document depuis une base de données
+    # Ici, on simule avec les métadonnées stockées dans un fichier JSON
+    
+    metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                
+            # Trouver le document par ID
+            for filename, doc_data in metadata.items():
+                if f"doc_{list(metadata.keys()).index(filename) + 1}" == document_id:
+                    return jsonify({
+                        "success": True,
+                        "data": {
+                            "id": document_id,
+                            "name": doc_data.get('name', filename),
+                            "fileName": filename,
+                            "type": doc_data.get('type', 'autre'),
+                            "description": doc_data.get('description', ''),
+                            "url": f"/api/documents/template/download/{filename}",
+                            # La prévisualisation nécessiterait une conversion du document
+                            # Dans une implémentation complète, cela pourrait être fait avec des librairies appropriées
+                            "previewHtml": None
+                        }
+                    })
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Erreur lors de la récupération du document: {str(e)}"})
+    
+    return jsonify({"success": False, "message": "Document non trouvé"})
+
+@app.route('/api/documents/template/<document_id>', methods=['DELETE'])
+def delete_template_document(document_id):
+    # Dans une implémentation complète, on récupérerait les détails du document depuis une base de données
+    # Ici, on simule avec les métadonnées stockées dans un fichier JSON
+    
+    metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                
+            # Trouver le document par ID
+            for filename, doc_data in list(metadata.items()):
+                if f"doc_{list(metadata.keys()).index(filename) + 1}" == document_id:
+                    # Supprimer le fichier
+                    file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    
+                    # Supprimer les métadonnées
+                    del metadata[filename]
+                    
+                    # Enregistrer les métadonnées mises à jour
+                    with open(metadata_file, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, ensure_ascii=False, indent=2)
+                    
+                    return jsonify({
+                        "success": True,
+                        "message": "Document supprimé avec succès"
+                    })
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Erreur lors de la suppression du document: {str(e)}"})
+    
+    return jsonify({"success": False, "message": "Document non trouvé"})
+
+@app.route('/api/documents/template/download/<filename>')
+def download_template_document(filename):
+    return send_from_directory(app.config['TEMPLATE_DOCS'], filename)
+
+# Route API pour le support
+@app.route('/api/support/send-message', methods=['POST'])
+def send_support_message():
+    data = request.json
+    name = data.get('name', '')
+    email = data.get('email', '')
+    subject = data.get('subject', '')
+    message = data.get('message', '')
+    
+    if not name or not email or not subject or not message:
+        return jsonify({"success": False, "message": "Tous les champs sont requis"})
+    
+    # Dans une implémentation complète, on enverrait un email
+    # Ici, on simule un succès
+    
+    try:
+        # Enregistrer le message dans un fichier pour démonstration
+        support_dir = 'support_messages'
+        os.makedirs(support_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        message_file = os.path.join(support_dir, f"message_{timestamp}.txt")
+        
+        with open(message_file, 'w', encoding='utf-8') as f:
+            f.write(f"De: {name} ({email})\n")
+            f.write(f"Sujet: {subject}\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("\n")
+            f.write(message)
+        
+        return jsonify({
+            "success": True,
+            "message": "Message envoyé avec succès"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Erreur lors de l'envoi du message: {str(e)}"})
 
 # Démarrer l'application
 if __name__ == '__main__':

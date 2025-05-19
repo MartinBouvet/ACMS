@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Entreprises EDF</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/additional-styles.css') }}">
     <!-- Favicon -->
     <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.ico') }}" type="image/x-icon">
 </head>
@@ -37,7 +38,7 @@
                             <span class="icon">💾</span>
                             <span>Base de données</span>
                         </a>
-                        <a href="#" class="{% if page == 'documents' %}active{% endif %}">
+                        <a href="/documents" class="{% if page == 'documents' %}active{% endif %}">
                             <span class="icon">📄</span>
                             <span>Documents types</span>
                         </a>
@@ -51,11 +52,11 @@
                 <div class="navigation-group">
                     <h3>AIDE</h3>
                     <nav class="sidebar-nav">
-                        <a href="#" class="{% if page == 'help' %}active{% endif %}">
+                        <a href="/guide" class="{% if page == 'guide' %}active{% endif %}">
                             <span class="icon">❓</span>
                             <span>Guide d'utilisation</span>
                         </a>
-                        <a href="#" class="{% if page == 'support' %}active{% endif %}">
+                        <a href="/support" class="{% if page == 'support' %}active{% endif %}">
                             <span class="icon">💬</span>
                             <span>Support</span>
                         </a>
@@ -97,6 +98,7 @@
     
     <!-- Scripts communs -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
     
     <!-- Scripts spécifiques à la page -->
     {% block scripts %}{% endblock %}

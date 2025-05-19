@@ -1,0 +1,157 @@
+{% extends "index.html" %}
+
+{% block content %}
+<div class="documents-page">
+    <div class="documents-header">
+        <h1>Documents types</h1>
+        <button class="button primary" id="upload-document-button">
+            <span class="icon">➕</span>
+            Ajouter un document
+        </button>
+    </div>
+    
+    <div class="documents-content">
+        <div class="documents-filters">
+            <div class="filter-group">
+                <label for="document-type-filter">Type de document</label>
+                <select id="document-type-filter">
+                    <option value="all">Tous les types</option>
+                    <option value="reglement">Règlement de consultation</option>
+                    <option value="marche">Projet de marché (CPA)</option>
+                    <option value="lettre">Lettre de consultation</option>
+                    <option value="grille">Grille d'évaluation</option>
+                    <option value="autre">Autres</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label for="document-search">Rechercher</label>
+                <div class="search-input">
+                    <input type="text" id="document-search" placeholder="Rechercher un document...">
+                    <button class="search-button">🔍</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="documents-grid">
+            {% if documents %}
+                {% for document in documents %}
+                <div class="document-card" data-type="{{ document.type }}">
+                    <div class="document-icon">
+                        {% if document.type == 'reglement' %}
+                        📋
+                        {% elif document.type == 'marche' %}
+                        📄
+                        {% elif document.type == 'lettre' %}
+                        ✉️
+                        {% elif document.type == 'grille' %}
+                        📊
+                        {% else %}
+                        📑
+                        {% endif %}
+                    </div>
+                    <div class="document-info">
+                        <h3>{{ document.name }}</h3>
+                        <p class="document-type">
+                            {% if document.type == 'reglement' %}
+                            Règlement de consultation
+                            {% elif document.type == 'marche' %}
+                            Projet de marché (CPA)
+                            {% elif document.type == 'lettre' %}
+                            Lettre de consultation
+                            {% elif document.type == 'grille' %}
+                            Grille d'évaluation
+                            {% else %}
+                            Autre
+                            {% endif %}
+                        </p>
+                        <p class="document-date">Ajouté le {{ document.date }}</p>
+                    </div>
+                    <div class="document-actions">
+                        <a href="{{ document.url }}" class="button secondary download-button" download>
+                            <span class="icon">⬇️</span>
+                            Télécharger
+                        </a>
+                        <button class="action-button preview-button" data-id="{{ document.id }}">👁️</button>
+                        <button class="action-button delete-button" data-id="{{ document.id }}">🗑️</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <div class="empty-icon">📂</div>
+                    <p>Aucun document type disponible pour le moment.</p>
+                    <p>Cliquez sur "Ajouter un document" pour téléverser votre premier document type.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Modal d'ajout de document -->
+    <div id="upload-document-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Ajouter un document type</h3>
+                <button class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="upload-document-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="document-name">Nom du document</label>
+                        <input type="text" id="document-name" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="document-type">Type de document</label>
+                        <select id="document-type" name="type" required>
+                            <option value="reglement">Règlement de consultation</option>
+                            <option value="marche">Projet de marché (CPA)</option>
+                            <option value="lettre">Lettre de consultation</option>
+                            <option value="grille">Grille d'évaluation</option>
+                            <option value="autre">Autre</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="document-description">Description (optionnelle)</label>
+                        <textarea id="document-description" name="description" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="document-file">Sélectionnez un fichier</label>
+                        <input type="file" id="document-file" name="file" required accept=".docx,.doc,.pdf,.xlsx,.xls">
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="button secondary" id="cancel-upload">Annuler</button>
+                        <button type="submit" class="button primary">Téléverser</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal de prévisualisation de document -->
+    <div id="preview-document-modal" class="modal" style="display: none;">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3 id="preview-document-title">Prévisualisation du document</h3>
+                <button class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="document-preview" class="document-preview">
+                    <!-- Contenu de la prévisualisation -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="button secondary" data-close-modal>Fermer</button>
+                <a id="preview-download-link" href="#" class="button primary" download>Télécharger</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/documents.js') }}"></script>
+{% endblock %}
