@@ -27,11 +27,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_DOCS'], exist_ok=True)
 os.makedirs('data', exist_ok=True)
-# Au début d'app.py
-if __name__ == '__main__':
-    print("Démarrage du serveur...")
-    app.run(debug=True, host='0.0.0.0', port=5000)
-    print("Serveur arrêté")
+
 # Charger les entreprises à partir du fichier Excel
 COMPANIES = []
 try:
@@ -50,7 +46,7 @@ def allowed_file(filename):
 # Routes pour les pages web
 @app.route('/')
 def index():
-    return render_template('index.html', page='dashboard')
+    return render_template('pages/dashboard.html', page='dashboard')
 
 @app.route('/dashboard')
 def dashboard():
@@ -241,4 +237,6 @@ def download_document(filename):
 
 # Démarrer l'application
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("Démarrage du serveur sur le port 5001...")
+    app.run(debug=True, host='0.0.0.0', port=5001)
+    print("Serveur arrêté")
