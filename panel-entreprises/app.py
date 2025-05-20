@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
 from flask_cors import CORS
 import os
@@ -19,10 +18,10 @@ app = Flask(__name__)
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['GENERATED_DOCS'] = 'generated'
-app.config['TEMPLATE_DOCS'] = 'templates_docs'  # Nouveau dossier pour les documents types
+app.config['TEMPLATE_DOCS'] = 'templates_docs'  # Dossier pour les documents types
 app.config['COMPANIES_EXCEL'] = os.path.join('data', 'ACMS Publipostage FINAL V4.xlsx')
-app.config['MISTRAL_API_KEY'] = 'cec930ebb79846da94d2cf5028177995'
-app.config['MISTRAL_AGENT_ID'] = '67f785d59e82260f684a217a'
+app.config['PRISME_API_KEY'] = 'cec930ebb79846da94d2cf5028177995'
+app.config['PRISME_AGENT_ID'] = '67f785d59e82260f684a217a'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 
 # Créer les dossiers nécessaires
@@ -46,14 +45,36 @@ ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# Définir l'historique des demandes statique pour la démonstration
+ACTIVITIES = [
+    {
+        'icon': '📝',
+        'title': 'Projet de rénovation des échangeurs à plaques',
+        'timestamp': 'il y a 2 jours',
+        'url': '/search'
+    },
+    {
+        'icon': '👥',
+        'title': 'Consultation lancée pour le projet de maintenance',
+        'timestamp': 'il y a 5 jours',
+        'url': '/search'
+    },
+    {
+        'icon': '📄',
+        'title': 'Documents générés pour le projet hydraulique',
+        'timestamp': 'il y a 1 semaine',
+        'url': '/documents'
+    }
+]
+
 # Routes pour les pages web
 @app.route('/')
 def index():
-    return render_template('pages/dashboard.html', page='dashboard')
+    return render_template('pages/dashboard.html', page='dashboard', activities=ACTIVITIES)
 
 @app.route('/dashboard')
 def dashboard():
-    return render_template('pages/dashboard.html', page='dashboard')
+    return render_template('pages/dashboard.html', page='dashboard', activities=ACTIVITIES)
 
 @app.route('/search')
 def search():
@@ -63,7 +84,6 @@ def search():
 def database():
     return render_template('pages/database.html', page='database', companies=COMPANIES)
 
-# Nouvelles routes pour les pages supplémentaires
 @app.route('/guide')
 def guide():
     return render_template('pages/guide.html', page='guide')
@@ -79,7 +99,7 @@ def documents():
     try:
         for filename in os.listdir(app.config['TEMPLATE_DOCS']):
             file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
-            if os.path.isfile(file_path):
+            if os.path.isfile(file_path) and not filename.startswith('.'):
                 # Déterminer le type de document
                 doc_type = 'autre'
                 if 'reglement' in filename.lower():
@@ -108,7 +128,7 @@ def documents():
     
     return render_template('pages/documents.html', page='documents', documents=template_docs)
 
-# Routes API existantes
+# Routes API
 @app.route('/api/companies', methods=['GET'])
 def get_all_companies():
     try:
@@ -212,9 +232,9 @@ def api_analyze_document():
     if not document_text:
         return jsonify({"success": False, "message": "Le texte du document est requis"})
     
-    # Analyser avec Mistral AI
+    # Analyser avec Prisme AI
     try:
-        analysis_results = analyze_document(document_text, app.config['MISTRAL_API_KEY'])
+        analysis_results = analyze_document(document_text, app.config['PRISME_API_KEY'])
         return jsonify({"success": True, "data": analysis_results})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -245,8 +265,8 @@ def api_agent_query():
         return jsonify({"success": False, "message": "La question est requise"})
     
     try:
-        # Interroger l'agent Mistral
-        answer = get_agent_answer(question, app.config['MISTRAL_API_KEY'], app.config['MISTRAL_AGENT_ID'])
+        # Interroger l'agent Prisme AI
+        answer = get_agent_answer(question, app.config['PRISME_API_KEY'], app.config['PRISME_AGENT_ID'])
         return jsonify({"success": True, "data": {"answer": answer}})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -262,17 +282,45 @@ def api_generate_document():
         return jsonify({"success": False, "message": "Le type de document est requis"})
     
     try:
-        document_info = create_document(
+        document_content = generate_document(
             template_type, 
             project_data, 
-            companies,
-            app.config['GENERATED_DOCS'],
-            app.config['MISTRAL_API_KEY']
+            app.config['PRISME_API_KEY']
         )
+        
+        # Enregistrer le document généré
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        project_id = project_data.get('id', 'projet').replace(' ', '_')
+        
+        # Déterminer l'extension du fichier
+        extension = 'docx'
+        if template_type == 'grilleEvaluation':
+            extension = 'xlsx'
+        
+        # Créer un préfixe selon le type de document
+        prefix_map = {
+            'projetMarche': 'PM',
+            'reglementConsultation': 'RC',
+            'grilleEvaluation': 'GE',
+            'lettreConsultation': 'LC'
+        }
+        prefix = prefix_map.get(template_type, 'DOC')
+        
+        # Construire le nom du fichier
+        filename = f"{prefix}_{project_id}_{timestamp}.{extension}"
+        file_path = os.path.join(app.config['GENERATED_DOCS'], filename)
+        
+        # Écrire le contenu dans un fichier
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(document_content)
         
         return jsonify({
             "success": True,
-            "data": document_info
+            "data": {
+                "fileName": filename,
+                "fileUrl": f"/api/documents/download/{filename}",
+                "type": extension
+            }
         })
     except Exception as e:
         print(f"Erreur lors de la génération du document: {e}")
@@ -283,154 +331,57 @@ def api_generate_document():
 def download_document(filename):
     return send_from_directory(app.config['GENERATED_DOCS'], filename)
 
-# Nouvelles routes API pour les documents types
-@app.route('/api/documents/template/upload', methods=['POST'])
-def upload_template_document():
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "Aucun fichier fourni"})
-        
-    file = request.files['file']
-    name = request.form.get('name', '')
-    doc_type = request.form.get('type', 'autre')
-    description = request.form.get('description', '')
-    
-    if file.filename == '':
-        return jsonify({"success": False, "message": "Aucun fichier sélectionné"})
-        
-    if file and allowed_file(file.filename):
-        # Créer un nom de fichier basé sur le type et le nom fourni
-        base_name = secure_filename(name)
-        extension = file.filename.rsplit('.', 1)[1].lower()
-        
-        # Ajouter un préfixe selon le type
-        prefix_map = {
-            'reglement': 'REG',
-            'marche': 'MAR',
-            'lettre': 'LET',
-            'grille': 'GRIL',
-            'autre': 'DOC'
-        }
-        prefix = prefix_map.get(doc_type, 'DOC')
-        
-        # Créer un horodatage
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Assembler le nom de fichier final
-        filename = f"{prefix}_{base_name}_{timestamp}.{extension}"
-        file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
-        
-        # Enregistrer le fichier
-        file.save(file_path)
-        
-        # Enregistrer les métadonnées (dans une implémentation complète, on utiliserait une base de données)
-        # Ici, on utilise un fichier JSON simple pour démonstration
-        metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
-        metadata = {}
-        
-        if os.path.exists(metadata_file):
-            try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
-            except:
-                metadata = {}
-        
-        metadata[filename] = {
-            'name': name,
-            'type': doc_type,
-            'description': description,
-            'uploadDate': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        with open(metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-        
-        return jsonify({
-            "success": True,
-            "message": "Document type téléversé avec succès",
-            "data": {
-                "id": f"doc_{len(metadata)}",
-                "name": name,
-                "fileName": filename,
-                "type": doc_type,
-                "url": f"/api/documents/template/download/{filename}"
-            }
-        })
-    
-    return jsonify({"success": False, "message": "Type de fichier non autorisé"})
-
-@app.route('/api/documents/template/<document_id>', methods=['GET'])
-def get_template_document(document_id):
-    # Dans une implémentation complète, on récupérerait les détails du document depuis une base de données
-    # Ici, on simule avec les métadonnées stockées dans un fichier JSON
-    
-    metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
-    if os.path.exists(metadata_file):
-        try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-                
-            # Trouver le document par ID
-            for filename, doc_data in metadata.items():
-                if f"doc_{list(metadata.keys()).index(filename) + 1}" == document_id:
-                    return jsonify({
-                        "success": True,
-                        "data": {
-                            "id": document_id,
-                            "name": doc_data.get('name', filename),
-                            "fileName": filename,
-                            "type": doc_data.get('type', 'autre'),
-                            "description": doc_data.get('description', ''),
-                            "url": f"/api/documents/template/download/{filename}",
-                            # La prévisualisation nécessiterait une conversion du document
-                            # Dans une implémentation complète, cela pourrait être fait avec des librairies appropriées
-                            "previewHtml": None
-                        }
-                    })
-        except Exception as e:
-            return jsonify({"success": False, "message": f"Erreur lors de la récupération du document: {str(e)}"})
-    
-    return jsonify({"success": False, "message": "Document non trouvé"})
-
-@app.route('/api/documents/template/<document_id>', methods=['DELETE'])
-def delete_template_document(document_id):
-    # Dans une implémentation complète, on récupérerait les détails du document depuis une base de données
-    # Ici, on simule avec les métadonnées stockées dans un fichier JSON
-    
-    metadata_file = os.path.join(app.config['TEMPLATE_DOCS'], 'metadata.json')
-    if os.path.exists(metadata_file):
-        try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-                
-            # Trouver le document par ID
-            for filename, doc_data in list(metadata.items()):
-                if f"doc_{list(metadata.keys()).index(filename) + 1}" == document_id:
-                    # Supprimer le fichier
-                    file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                    
-                    # Supprimer les métadonnées
-                    del metadata[filename]
-                    
-                    # Enregistrer les métadonnées mises à jour
-                    with open(metadata_file, 'w', encoding='utf-8') as f:
-                        json.dump(metadata, f, ensure_ascii=False, indent=2)
-                    
-                    return jsonify({
-                        "success": True,
-                        "message": "Document supprimé avec succès"
-                    })
-        except Exception as e:
-            return jsonify({"success": False, "message": f"Erreur lors de la suppression du document: {str(e)}"})
-    
-    return jsonify({"success": False, "message": "Document non trouvé"})
-
 @app.route('/api/documents/template/download/<filename>')
 def download_template_document(filename):
     return send_from_directory(app.config['TEMPLATE_DOCS'], filename)
 
-# Route API pour le support
+@app.route('/api/database/update-company', methods=['POST'])
+def update_company():
+    data = request.json
+    company_id = data.get('id')
+    
+    if not company_id:
+        return jsonify({"success": False, "message": "L'identifiant de l'entreprise est requis"})
+    
+    # Trouver l'entreprise dans la liste
+    for i, company in enumerate(COMPANIES):
+        if company['id'] == company_id:
+            # Mettre à jour les champs fournis
+            for key, value in data.items():
+                if key != 'id':
+                    COMPANIES[i][key] = value
+            
+            return jsonify({"success": True, "data": COMPANIES[i]})
+    
+    return jsonify({"success": False, "message": "Entreprise non trouvée"})
+
+@app.route('/api/database/add-company', methods=['POST'])
+def add_company():
+    data = request.json
+    company_name = data.get('name')
+    
+    if not company_name:
+        return jsonify({"success": False, "message": "Le nom de l'entreprise est requis"})
+    
+    # Créer un nouvel ID
+    company_id = str(len(COMPANIES) + 1).zfill(3)
+    
+    # Créer la nouvelle entreprise
+    new_company = {
+        'id': company_id,
+        'name': company_name,
+        'location': data.get('location', 'Non spécifié'),
+        'certifications': data.get('certifications', []),
+        'ca': data.get('ca', 'Non spécifié'),
+        'employees': data.get('employees', 'Non spécifié'),
+        'experience': data.get('experience', 'Non spécifié')
+    }
+    
+    # Ajouter à la liste
+    COMPANIES.append(new_company)
+    
+    return jsonify({"success": True, "data": new_company})
+
 @app.route('/api/support/send-message', methods=['POST'])
 def send_support_message():
     data = request.json

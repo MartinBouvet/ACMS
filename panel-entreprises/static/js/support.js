@@ -76,12 +76,12 @@ function initFaqAccordion() {
             const icon = this.querySelector('.accordion-icon');
             
             // Vérifier si le contenu est actuellement visible
-            const isExpanded = content.style.maxHeight !== '0px' && content.style.maxHeight !== '';
+            const isExpanded = content.classList.contains('expanded');
             
             // Fermer tous les accordéons
             document.querySelectorAll('.accordion-content').forEach(item => {
-                item.style.maxHeight = '0px';
-                item.style.padding = '0 1rem';
+                item.classList.remove('expanded');
+                item.style.maxHeight = '0';
             });
             
             document.querySelectorAll('.accordion-icon').forEach(icon => {
@@ -90,8 +90,8 @@ function initFaqAccordion() {
             
             // Si le contenu n'était pas visible, l'ouvrir
             if (!isExpanded) {
+                content.classList.add('expanded');
                 content.style.maxHeight = content.scrollHeight + 'px';
-                content.style.padding = '1rem';
                 icon.textContent = '−';
             }
         });
@@ -99,7 +99,9 @@ function initFaqAccordion() {
     
     // Initialiser tous les contenus fermés
     document.querySelectorAll('.accordion-content').forEach(content => {
-        content.style.maxHeight = '0px';
+        content.style.maxHeight = '0';
+        content.style.overflow = 'hidden';
+        content.style.transition = 'max-height 0.3s ease';
         content.style.padding = '0 1rem';
     });
 }

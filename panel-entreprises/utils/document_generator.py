@@ -12,7 +12,7 @@ def create_document(template_type, project_data, companies, output_dir, api_key)
         project_data: Données du projet
         companies: Entreprises sélectionnées
         output_dir: Répertoire de sortie
-        api_key: Clé API Mistral
+        api_key: Clé API Prisme AI
         
     Returns:
         Informations sur le document généré
@@ -21,7 +21,7 @@ def create_document(template_type, project_data, companies, output_dir, api_key)
         # Créer le répertoire de sortie s'il n'existe pas
         os.makedirs(output_dir, exist_ok=True)
         
-        # Générer le contenu du document avec l'API Mistral
+        # Générer le contenu du document avec l'API Prisme AI
         content = generate_document(template_type, {
             'title': project_data.get('title', 'Projet EDF'),
             'description': project_data.get('description', ''),

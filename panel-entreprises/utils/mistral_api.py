@@ -4,7 +4,17 @@ import time
 import re
 
 def analyze_document(document_text, api_key):
-    url = "https://api.mistral.ai/v1/chat/completions"
+    """
+    Analyse un document avec l'API Prisme AI (Mistral)
+    
+    Args:
+        document_text: Texte du document à analyser
+        api_key: Clé API pour Prisme AI
+        
+    Returns:
+        Dictionnaire avec les critères et mots-clés extraits
+    """
+    url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
     
     prompt = f"""
     Vous êtes un assistant expert d'EDF qui analyse des cahiers des charges pour des projets <400K euros. 
@@ -35,17 +45,13 @@ def analyze_document(document_text, api_key):
     """
     
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "knowledge-project-apikey": api_key
     }
     
     data = {
-        "model": "mistral-large-latest",
-        "messages": [
-            {"role": "system", "content": "Vous êtes un assistant d'analyse de documents d'appel d'offres précis et concis qui répond uniquement au format JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.1
+        "text": prompt,
+        "projectId": "67f785d59e82260f684a217a"  # ID de l'agent
     }
     
     max_retries = 3
@@ -53,62 +59,52 @@ def analyze_document(document_text, api_key):
     
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=30)
+            response = requests.post(url, headers=headers, json=data, timeout=60)
             
             if response.status_code == 200:
-                content = response.json()["choices"][0]["message"]["content"]
+                result = response.json()
+                content = result.get("answer", "")
                 
                 try:
-                    start = content.find('{')
-                    end = content.rfind('}') + 1
+                    # Extraire le JSON de la réponse
+                    json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                    else:
+                        # Chercher directement un objet JSON dans la réponse
+                        start = content.find('{')
+                        end = content.rfind('}') + 1
+                        if start >= 0 and end > start:
+                            json_str = content[start:end]
+                        else:
+                            raise ValueError("Format JSON non détecté dans la réponse")
                     
-                    if start >= 0 and end > start:
-                        json_str = content[start:end]
-                        try:
-                            result = json.loads(json_str)
-                            
-                            if "selectionCriteria" in result:
-                                for i, criterion in enumerate(result["selectionCriteria"]):
-                                    if "id" not in criterion:
-                                        criterion["id"] = i + 1
-                                    if "selected" not in criterion:
-                                        criterion["selected"] = True
-                            
-                            if "attributionCriteria" in result:
-                                for i, criterion in enumerate(result["attributionCriteria"]):
-                                    if "id" not in criterion:
-                                        criterion["id"] = i + 1
-                            
-                            return result
-                        except json.JSONDecodeError as e:
-                            print(f"Erreur de décodage JSON: {e}")
+                    result_data = json.loads(json_str)
                     
-                    return {
-                        "keywords": ["Projet EDF", "Travaux", "Maintenance", "Sous-traitance", "Sécurité"],
-                        "selectionCriteria": [
-                            {"id": 1, "name": "Certification MASE", "description": "L'entreprise doit posséder la certification MASE", "selected": True},
-                            {"id": 2, "name": "Expérience similaire", "description": "Au moins 3 projets similaires réalisés", "selected": True},
-                            {"id": 3, "name": "Zone d'intervention", "description": "Capacité d'intervention dans la région concernée", "selected": True},
-                            {"id": 4, "name": "Capacité technique", "description": "Ressources suffisantes pour réaliser le projet", "selected": True}
-                        ],
-                        "attributionCriteria": [
-                            {"id": 1, "name": "Valeur technique", "weight": 40},
-                            {"id": 2, "name": "Prix", "weight": 30},
-                            {"id": 3, "name": "Délai d'exécution", "weight": 20},
-                            {"id": 4, "name": "Performance sécurité", "weight": 10}
-                        ]
-                    }
+                    # Vérifier et ajouter les champs manquants
+                    if "selectionCriteria" in result_data:
+                        for i, criterion in enumerate(result_data["selectionCriteria"]):
+                            if "id" not in criterion:
+                                criterion["id"] = i + 1
+                            if "selected" not in criterion:
+                                criterion["selected"] = True
                     
-                except Exception as e:
-                    print(f"Erreur lors de l'analyse du JSON: {e}")
-                    raise
-            elif response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', retry_delay * (2 ** attempt)))
-                print(f"Rate limit atteint, nouvel essai dans {retry_after} secondes...")
-                time.sleep(retry_after)
-                continue
+                    if "attributionCriteria" in result_data:
+                        for i, criterion in enumerate(result_data["attributionCriteria"]):
+                            if "id" not in criterion:
+                                criterion["id"] = i + 1
+                    
+                    return result_data
+                except (ValueError, json.JSONDecodeError) as e:
+                    print(f"Erreur de décodage JSON: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))
+                        continue
+            elif response.status_code == 401:
+                print(f"Erreur d'authentification API Prisme AI: {response.status_code}, {response.text}")
+                raise Exception(f"Erreur d'authentification: Vérifiez votre clé API")
             else:
-                print(f"Erreur API Mistral: {response.status_code}, {response.text}")
+                print(f"Erreur API Prisme AI: {response.status_code}, {response.text}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay * (2 ** attempt))
                     continue
@@ -121,6 +117,7 @@ def analyze_document(document_text, api_key):
                 continue
             raise
     
+    # En cas d'échec après plusieurs tentatives, retourner un résultat par défaut
     return {
         "keywords": ["Projet EDF", "Travaux", "Maintenance", "Sous-traitance", "Sécurité"],
         "selectionCriteria": [
@@ -138,7 +135,18 @@ def analyze_document(document_text, api_key):
     }
 
 def generate_document(template_type, data, api_key):
-    url = "https://api.mistral.ai/v1/chat/completions"
+    """
+    Génère un document à partir d'un template avec l'API Prisme AI
+    
+    Args:
+        template_type: Type de document à générer
+        data: Données pour le document
+        api_key: Clé API pour Prisme AI
+        
+    Returns:
+        Contenu du document généré
+    """
+    url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
     
     if template_type == "projetMarche":
         document_description = "un projet de marché incluant les clauses administratives et techniques"
@@ -209,56 +217,63 @@ def generate_document(template_type, data, api_key):
         """
     
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "knowledge-project-apikey": api_key
     }
     
     data = {
-        "model": "mistral-large-latest",
-        "messages": [
-            {"role": "system", "content": "Vous êtes un expert juridique spécialisé dans la rédaction de documents d'appel d'offres pour EDF."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 4000
+        "text": prompt,
+        "projectId": "67f785d59e82260f684a217a"  # ID de l'agent
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=60)
+        response = requests.post(url, headers=headers, json=data, timeout=120)
         
         if response.status_code == 200:
-            content = response.json()["choices"][0]["message"]["content"]
+            result = response.json()
+            content = result.get("answer", "")
             return content
         else:
-            print(f"Erreur API Mistral: {response.status_code}, {response.text}")
+            print(f"Erreur API Prisme AI: {response.status_code}, {response.text}")
             return f"Document {template_type} pour le projet {project_title}\n\nContenu généré par défaut suite à une erreur."
     except Exception as e:
         print(f"Erreur lors de la génération du document: {e}")
         return f"Document {template_type} pour le projet {project_title}\n\nContenu généré par défaut suite à une erreur."
 
 def get_agent_answer(question, api_key, agent_id):
-    url = f"https://api.mistral.ai/v1/agents/{agent_id}/chat/completions"
+    """
+    Interroge l'agent Prisme AI
+    
+    Args:
+        question: Question à poser
+        api_key: Clé API pour Prisme AI
+        agent_id: ID de l'agent
+        
+    Returns:
+        Réponse de l'agent
+    """
+    url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
     
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "knowledge-project-apikey": api_key
     }
     
     data = {
-        "messages": [
-            {"role": "user", "content": question}
-        ]
+        "text": question,
+        "projectId": agent_id
     }
     
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
         
         if response.status_code == 200:
-            content = response.json()["choices"][0]["message"]["content"]
+            result = response.json()
+            content = result.get("answer", "")
             return content
         else:
-            print(f"Erreur API Mistral Agent: {response.status_code}, {response.text}")
-            return "Désolé, je n'ai pas pu obtenir de réponse de l'agent Mistral."
+            print(f"Erreur API Prisme AI: {response.status_code}, {response.text}")
+            return "Désolé, je n'ai pas pu obtenir de réponse de l'agent Prisme AI."
     except Exception as e:
         print(f"Erreur lors de l'interrogation de l'agent: {e}")
         return f"Erreur: {str(e)}"

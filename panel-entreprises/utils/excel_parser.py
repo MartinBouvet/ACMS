@@ -1,7 +1,6 @@
-# Utility to parse Excel files
-# utils/excel_parser.py
 import pandas as pd
 import os
+import re
 
 def load_companies_from_excel(file_path):
     """
@@ -36,34 +35,88 @@ def load_companies_from_excel(file_path):
                 # Créer un identifiant unique
                 company_id = str(idx + 1).zfill(3)
                 
-                # Extraire le nom de l'entreprise (adapter selon la structure réelle du fichier)
-                company_name = get_value(row, ['RAISON SOCIALE', 'Entreprise', 'Nom'])
+                # Extraire le nom de l'entreprise (vérifier différentes possibilités de noms de colonnes)
+                company_name = None
+                for col in ['RAISON SOCIALE', 'Entreprise', 'Nom', 'NOM ENTREPRISE', 'ENTREPRISE', 'DENOMINATION']:
+                    if col in df.columns and pd.notna(row[col]):
+                        company_name = str(row[col]).strip()
+                        break
+                
+                if not company_name:
+                    company_name = f"Entreprise {company_id}"
                 
                 # Extraire la localisation
-                location = get_value(row, ['Ville', 'Localisation', 'Adresse'])
+                location = None
+                for col in ['Ville', 'Localisation', 'Adresse', 'VILLE', 'ADRESSE', 'LOCALITE']:
+                    if col in df.columns and pd.notna(row[col]):
+                        location = str(row[col]).strip()
+                        break
                 
-                # Extraire les certifications (adapter selon la structure réelle)
+                if not location:
+                    location = 'Non spécifié'
+                
+                # Extraire les certifications
                 certifications = []
-                cert_columns = ['MASE', 'ISO 9001', 'ISO 14001', 'QUALIBAT']
+                cert_columns = ['MASE', 'ISO 9001', 'ISO 14001', 'QUALIBAT', 'CERTIFICATION']
                 
                 for cert in cert_columns:
                     if cert in df.columns and pd.notna(row[cert]) and row[cert] not in ['Non', 'non', 0, '0', False]:
                         certifications.append(cert)
                 
-                # Extraire d'autres informations
-                ca = get_value(row, ['CA', 'Chiffre d\'affaires', 'CHIFFRE D\'AFFAIRES'])
-                employees = get_value(row, ['Effectifs', 'EFFECTIF', 'Nombre d\'employés'])
-                experience = get_value(row, ['Expérience', 'EXPERIENCE', 'Projets similaires'])
+                # Vérifier aussi les colonnes contenant "CERTIF"
+                for col in df.columns:
+                    if 'CERTIF' in col.upper() and pd.notna(row[col]) and row[col] not in ['Non', 'non', 0, '0', False]:
+                        if isinstance(row[col], str) and len(row[col].strip()) > 0:
+                            certifications.append(row[col].strip())
+                        elif row[col] == 1 or row[col] is True:
+                            certifications.append(col)
+                
+                # Extraire le chiffre d'affaires
+                ca = None
+                for col in ['CA', 'Chiffre d\'affaires', 'CHIFFRE D\'AFFAIRES', 'CA ANNUEL', 'CA HT']:
+                    if col in df.columns and pd.notna(row[col]):
+                        if isinstance(row[col], (int, float)):
+                            if row[col] > 1000000:  # Supposer que c'est en euros
+                                ca = f"{row[col]/1000000:.1f}M€"
+                            elif row[col] > 1000:
+                                ca = f"{row[col]/1000:.0f}k€"
+                            else:
+                                ca = f"{row[col]:.0f}€"
+                        else:
+                            ca = str(row[col])
+                        break
+                
+                # Extraire les effectifs
+                employees = None
+                for col in ['Effectifs', 'EFFECTIF', 'Nombre d\'employés', 'NB SALARIES', 'PERSONNEL']:
+                    if col in df.columns and pd.notna(row[col]):
+                        if isinstance(row[col], (int, float)):
+                            employees = str(int(row[col]))
+                        else:
+                            # Tenter d'extraire un nombre de la valeur texte
+                            matches = re.findall(r'\d+', str(row[col]))
+                            if matches:
+                                employees = matches[0]
+                            else:
+                                employees = str(row[col])
+                        break
+                
+                # Extraire l'expérience ou projets similaires
+                experience = None
+                for col in ['Expérience', 'EXPERIENCE', 'Projets similaires', 'REFERENCES', 'PROJETS']:
+                    if col in df.columns and pd.notna(row[col]):
+                        experience = str(row[col])
+                        break
                 
                 # Créer l'objet entreprise
                 company = {
                     'id': company_id,
-                    'name': str(company_name) if company_name is not None else f"Entreprise {company_id}",
-                    'location': str(location) if location is not None else 'Non spécifié',
+                    'name': company_name,
+                    'location': location,
                     'certifications': certifications,
-                    'ca': str(ca) if ca is not None else 'Non spécifié',
-                    'employees': str(employees) if employees is not None else 'Non spécifié',
-                    'experience': str(experience) if experience is not None else 'Non spécifié'
+                    'ca': ca if ca is not None else 'Non spécifié',
+                    'employees': employees if employees is not None else 'Non spécifié',
+                    'experience': experience if experience is not None else 'Non spécifié'
                 }
                 
                 companies.append(company)

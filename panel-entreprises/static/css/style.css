@@ -1,4 +1,3 @@
-/* Add your CSS styles here */
 /* 
  * style.css - Styles principaux pour l'application Panel Entreprises EDF
  */
@@ -81,6 +80,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: 200px;
 }
 
 .logo img {
@@ -88,7 +88,7 @@ html, body {
 }
 
 .logo h2 {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -527,8 +527,6 @@ html, body {
   margin-top: 1.5rem;
 }
 
-/* Styles pour les pages spécifiques */
-
 /* Tableau de bord */
 .dashboard-page {
   display: flex;
@@ -542,161 +540,45 @@ html, body {
   align-items: center;
 }
 
-.dashboard-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-}
-
-.stat-card {
-  background-color: white;
-  border-radius: var(--border-radius);
-  box-shadow: var(--box-shadow);
-  padding: 1.5rem;
-}
-
-.stat-title {
-  font-size: 0.875rem;
-  color: var(--gray-600);
-  margin-bottom: 0.5rem;
-}
-
-.stat-value {
-  font-size: 1.75rem;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.stat-trend {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.875rem;
-}
-
-.stat-trend.positive {
-  color: var(--success-color);
-}
-
-.stat-trend.negative {
-  color: var(--danger-color);
-}
-
-.dashboard-main {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 1.5rem;
-}
-
 .dashboard-content {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.dashboard-section {
   background-color: white;
   border-radius: var(--border-radius);
   box-shadow: var(--box-shadow);
   padding: 1.5rem;
 }
 
-.section-header {
+.dashboard-actions {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.section-header h2 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-
-.view-all-link {
-  color: var(--edf-blue-light);
-  text-decoration: none;
-  font-size: 0.875rem;
-}
-
-.view-all-link:hover {
-  text-decoration: underline;
-}
-
-.period-selector {
-  display: flex;
-  gap: 5px;
-}
-
-.period-option {
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--border-radius);
-  font-size: 0.875rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-speed);
-}
-
-.period-option:hover {
-  background-color: var(--gray-200);
-}
-
-.period-option.active {
-  background-color: var(--edf-blue-light);
-  color: white;
-}
-
-.chart-container {
-  height: 300px;
-  position: relative;
-}
-
-.chart-placeholder {
-  height: 100%;
-  background-color: var(--gray-100);
-  border-radius: var(--border-radius);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--gray-500);
-}
-
-.placeholder-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+  gap: 10px;
+  margin-top: 1.5rem;
 }
 
 .activity-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  margin-top: 1.5rem;
 }
 
 .activity-item {
+  padding: 1rem;
+  border-bottom: 1px solid var(--gray-200);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0.75rem;
-  border-radius: var(--border-radius);
-  background-color: var(--gray-100);
-  transition: all var(--transition-speed);
+  gap: 1rem;
 }
 
-.activity-item:hover {
-  background-color: var(--gray-200);
+.activity-item:last-child {
+  border-bottom: none;
 }
 
 .activity-icon {
-  font-size: 1.25rem;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
+  background-color: var(--gray-100);
   border-radius: 50%;
-  background-color: var(--gray-200);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 1.25rem;
+  color: var(--edf-blue-light);
 }
 
 .activity-content {
@@ -705,59 +587,12 @@ html, body {
 
 .activity-title {
   font-weight: 500;
-  margin-bottom: 2px;
+  margin-bottom: 0.25rem;
 }
 
 .activity-timestamp {
   font-size: 0.75rem;
   color: var(--gray-600);
-}
-
-.project-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.project-item {
-  padding: 0.75rem;
-  border-radius: var(--border-radius);
-  background-color: var(--gray-100);
-  transition: all var(--transition-speed);
-}
-
-.project-item:hover {
-  background-color: var(--gray-200);
-}
-
-.project-name {
-  font-weight: 500;
-  margin-bottom: 5px;
-}
-
-.project-details {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.875rem;
-  color: var(--gray-600);
-  margin-bottom: 2px;
-}
-
-.project-status {
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 0.75rem;
-}
-
-.status-active {
-  background-color: var(--success-color);
-  color: white;
-}
-
-.status-pending {
-  background-color: var(--warning-color);
-  color: var(--gray-800);
 }
 
 /* Page de recherche */
@@ -887,16 +722,6 @@ html, body {
 .dropzone-submessage {
   font-size: 0.875rem;
   color: var(--gray-600);
-}
-
-.dropzone-content.uploading .dropzone-icon,
-.dropzone-content.error .dropzone-icon {
-  display: none;
-}
-
-.dropzone-content.error .error-icon {
-  font-size: 3rem;
-  color: var(--danger-color);
 }
 
 .upload-actions {
@@ -1343,11 +1168,6 @@ input:checked + .toggle-slider:before {
   grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.5fr;
   padding: 1rem;
   border-bottom: 1px solid var(--gray-200);
-  align-items: center;
-}
-
-.table-row:hover {
-  background-color: var(--gray-100);
 }
 
 .table-pagination {
