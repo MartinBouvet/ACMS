@@ -10,6 +10,26 @@
             <button class="button primary" id="search-button">Rechercher</button>
         </div>
         
+        <div class="filter-controls">
+            <select id="domain-filter">
+                <option value="">Tous les domaines</option>
+                <option value="Électricité">Électricité</option>
+                <option value="Mécanique">Mécanique</option>
+                <option value="Hydraulique">Hydraulique</option>
+                <option value="Bâtiment">Bâtiment</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Autre">Autre</option>
+            </select>
+            
+            <select id="certification-filter">
+                <option value="">Toutes certifications</option>
+                <option value="MASE">MASE</option>
+                <option value="ISO 9001">ISO 9001</option>
+                <option value="ISO 14001">ISO 14001</option>
+                <option value="QUALIBAT">QUALIBAT</option>
+            </select>
+        </div>
+        
         <div class="database-actions">
             <button class="button secondary" id="import-button">
                 <span class="icon">📥</span>
@@ -25,6 +45,7 @@
     <div class="database-table">
         <div class="table-header">
             <div class="header-name">Nom</div>
+            <div class="header-domain">Domaine</div>
             <div class="header-location">Localisation</div>
             <div class="header-certifications">Certifications</div>
             <div class="header-ca">CA</div>
@@ -32,11 +53,21 @@
             <div class="header-actions">Actions</div>
         </div>
         
-        <div class="table-body">
+        <div class="table-body" id="companies-table-body">
             {% if companies %}
                 {% for company in companies %}
-                <div class="table-row">
-                    <div class="company-name">{{ company.name }}</div>
+                <div class="table-row" data-company-id="{{ company.id }}">
+                    <div class="company-name">
+                        <div class="company-main-info">
+                            <span class="company-title">{{ company.name }}</span>
+                            {% if company.contact and company.contact.email %}
+                            <span class="company-email">{{ company.contact.email }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="company-domain">
+                        <span class="domain-badge">{{ company.domain }}</span>
+                    </div>
                     <div class="company-location">{{ company.location }}</div>
                     <div class="company-certifications">
                         {% for cert in company.certifications %}
@@ -46,8 +77,9 @@
                     <div class="company-ca">{{ company.ca }}</div>
                     <div class="company-employees">{{ company.employees }}</div>
                     <div class="company-actions">
-                        <button class="action-button view-button" data-id="{{ company.id }}">👁️</button>
-                        <button class="action-button edit-button" data-id="{{ company.id }}">✏️</button>
+                        <button class="action-button view-button" data-id="{{ company.id }}" title="Voir détails">👁️</button>
+                        <button class="action-button edit-button" data-id="{{ company.id }}" title="Modifier">✏️</button>
+                        <button class="action-button delete-button" data-id="{{ company.id }}" title="Supprimer">🗑️</button>
                     </div>
                 </div>
                 {% endfor %}
@@ -60,12 +92,12 @@
         
         <div class="table-pagination">
             <div class="pagination-info">
-                <span>Affichage de 1-{{ companies|length }} sur {{ companies|length }} entreprises</span>
+                <span id="pagination-info">Affichage de {{ companies|length }} entreprises</span>
             </div>
             <div class="pagination-controls">
-                <button class="page-button" disabled>&lt;</button>
-                <button class="page-button active">1</button>
-                <button class="page-button" disabled>&gt;</button>
+                <button class="page-button" id="prev-page" disabled>&lt;</button>
+                <button class="page-button active" id="current-page">1</button>
+                <button class="page-button" id="next-page" disabled>&gt;</button>
             </div>
         </div>
     </div>
@@ -81,13 +113,119 @@
                 <form id="import-form" enctype="multipart/form-data">
                     <div class="form-group">
                         <label for="excel-file">Sélectionnez un fichier Excel</label>
-                        <input type="file" id="excel-file" name="file" accept=".xlsx,.xls">
+                        <input type="file" id="excel-file" name="file" accept=".xlsx,.xls" required>
+                        <small>Formats supportés : .xlsx, .xls</small>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="button secondary" id="cancel-import">Annuler</button>
                         <button type="submit" class="button primary" id="submit-import">Importer</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal d'ajout/modification d'entreprise -->
+    <div id="company-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="company-modal-title">Ajouter une entreprise</h3>
+                <button class="close-button" id="close-company-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="company-form">
+                    <input type="hidden" id="company-id" name="id">
+                    
+                    <div class="form-group">
+                        <label for="company-name">Nom de l'entreprise *</label>
+                        <input type="text" id="company-name-input" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-domain">Domaine d'activité</label>
+                        <select id="company-domain-input" name="domain">
+                            <option value="">Sélectionner un domaine</option>
+                            <option value="Électricité">Électricité</option>
+                            <option value="Mécanique">Mécanique</option>
+                            <option value="Hydraulique">Hydraulique</option>
+                            <option value="Bâtiment">Bâtiment</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Autre">Autre</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-location-input">Localisation</label>
+                        <input type="text" id="company-location-input" name="location" placeholder="Ville, Département">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-ca-input">Chiffre d'affaires</label>
+                        <input type="text" id="company-ca-input" name="ca" placeholder="Ex: 1.5M€">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-employees-input">Effectifs</label>
+                        <input type="text" id="company-employees-input" name="employees" placeholder="Ex: 25">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Certifications</label>
+                        <div class="certifications-checkboxes">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="certifications" value="MASE"> MASE
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="certifications" value="ISO 9001"> ISO 9001
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="certifications" value="ISO 14001"> ISO 14001
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="certifications" value="QUALIBAT"> QUALIBAT
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-email">Email</label>
+                        <input type="email" id="company-email" name="email" placeholder="contact@entreprise.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-phone">Téléphone</label>
+                        <input type="tel" id="company-phone" name="phone" placeholder="01 23 45 67 89">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="company-experience">Expérience / Références</label>
+                        <textarea id="company-experience" name="experience" rows="3" placeholder="Décrivez l'expérience ou les références de l'entreprise"></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="button secondary" id="cancel-company">Annuler</button>
+                        <button type="submit" class="button primary" id="save-company">Enregistrer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal de détails d'entreprise -->
+    <div id="company-details-modal" class="modal" style="display: none;">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3 id="company-details-title">Détails de l'entreprise</h3>
+                <button class="close-button" id="close-details-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="company-details-content">
+                    <!-- Le contenu sera rempli dynamiquement -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="button secondary" id="close-details-btn">Fermer</button>
+                <button class="button primary" id="edit-from-details">Modifier</button>
             </div>
         </div>
     </div>
