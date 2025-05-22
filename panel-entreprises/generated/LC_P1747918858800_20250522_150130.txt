@@ -1,0 +1,27 @@
+ Objet : Consultation pour le projet de Nettoyeur echange
+
+Madame, Monsieur,
+
+Nous sommes actuellement à la recherche d'un prestataire pour le projet de Nettoyeur echange pour notre entreprise EDF. Nous souhaitons obtenir des propositions de votre part pour la fourniture et l'installation de ce matériel.
+
+Voici une description du projet : blabla
+
+Nous vous prions de bien vouloir nous faire parvenir votre offre comprenant les éléments suivants :
+
+* Une description détaillée de votre solution et de ses caractéristiques techniques
+* Le prix de votre offre, toutes taxes comprises, ainsi que les modalités de paiement
+* Le délai de livraison et d'installation
+* Les garanties et le service après-vente proposés
+* Les références de prestations similaires réalisées par votre entreprise
+
+Nous vous demandons de bien vouloir nous transmettre votre offre avant le [date limite de réception des offres]. Toute offre reçue après cette date ne sera pas prise en compte.
+
+Nous vous remercions de l'attention que vous porterez à notre demande et nous nous tenons à votre disposition pour tout complément d'information.
+
+Veuillez agréer, Madame, Monsieur, l'expression de nos salutations distinguées.
+
+[Votre nom]
+[Votre fonction]
+EDF
+[Votre adresse]
+[Votre ville, code postal]

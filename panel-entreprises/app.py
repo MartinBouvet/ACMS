@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import json
@@ -6,6 +6,11 @@ import pandas as pd
 from werkzeug.utils import secure_filename
 import traceback
 from datetime import datetime
+import logging
+
+# Configuration du logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Import des utilitaires
 from utils.excel_parser import load_companies_from_excel
@@ -13,133 +18,231 @@ from utils.mistral_api import analyze_document, generate_document, get_agent_ans
 from utils.company_matcher import match_companies
 from utils.document_generator import create_document
 
-# Configuration
+# Configuration Flask
 app = Flask(__name__)
 CORS(app)
+
+# Configuration des chemins
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['GENERATED_DOCS'] = 'generated'
-app.config['TEMPLATE_DOCS'] = 'templates_docs'  # Dossier pour les documents types
-app.config['COMPANIES_EXCEL'] = 'DACI GP_ORANO DS_Nettoyages des échangeurs à plaques_CNPE CHOOZ signé .xlsx'
+app.config['TEMPLATE_DOCS'] = 'templates_docs'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+
+# Configuration API Prisme AI
 app.config['PRISME_API_KEY'] = 'cec930ebb79846da94d2cf5028177995'
 app.config['PRISME_AGENT_ID'] = '67f785d59e82260f684a217a'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 
 # Créer les dossiers nécessaires
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['GENERATED_DOCS'], exist_ok=True)
-os.makedirs(app.config['TEMPLATE_DOCS'], exist_ok=True)
-os.makedirs('data', exist_ok=True)
+for folder in [app.config['UPLOAD_FOLDER'], app.config['GENERATED_DOCS'], 
+               app.config['TEMPLATE_DOCS'], 'data']:
+    os.makedirs(folder, exist_ok=True)
 
-def debug_excel_loading():
-    """Debug le chargement du fichier Excel"""
-    print("=== DEBUG CHARGEMENT EXCEL ===")
+def find_excel_file():
+    """Trouve automatiquement le fichier Excel des entreprises"""
+    logger.info("=== RECHERCHE FICHIER EXCEL ===")
     
-    # Vérifier les fichiers présents
-    current_dir = os.getcwd()
-    print(f"Répertoire courant: {current_dir}")
+    # Chemins possibles
+    possible_paths = [
+        'DACI GP_ORANO DS_Nettoyages des échangeurs à plaques_CNPE CHOOZ signé .xlsx',
+        'data/DACI GP_ORANO DS_Nettoyages des échangeurs à plaques_CNPE CHOOZ signé .xlsx',
+        'ACMS Publipostage FINAL V4.xlsx',
+        'data/ACMS Publipostage FINAL V4.xlsx'
+    ]
     
-    # Lister les fichiers Excel dans le répertoire courant
-    excel_files = [f for f in os.listdir('.') if f.endswith(('.xlsx', '.xls'))]
-    print(f"Fichiers Excel trouvés dans la racine: {excel_files}")
+    # Chercher le fichier spécifique
+    for path in possible_paths:
+        if os.path.exists(path):
+            logger.info(f"Fichier Excel trouvé: {path}")
+            return path
     
-    # Vérifier aussi dans le dossier data
-    data_dir = 'data'
-    if os.path.exists(data_dir):
-        data_excel_files = [f for f in os.listdir(data_dir) if f.endswith(('.xlsx', '.xls'))]
-        print(f"Fichiers Excel trouvés dans /data: {data_excel_files}")
-        excel_files.extend([os.path.join(data_dir, f) for f in data_excel_files])
+    # Chercher tous les fichiers Excel
+    logger.info("Recherche de fichiers Excel dans le répertoire...")
     
-    # Vérifier le fichier spécifique
-    excel_file = app.config['COMPANIES_EXCEL']
-    print(f"Fichier configuré: {excel_file}")
-    print(f"Fichier existe: {os.path.exists(excel_file)}")
+    excel_files = []
+    for root, dirs, files in os.walk('.'):
+        for file in files:
+            if file.endswith(('.xlsx', '.xls')):
+                full_path = os.path.join(root, file)
+                excel_files.append(full_path)
+                logger.info(f"Fichier Excel trouvé: {full_path}")
     
-    if os.path.exists(excel_file):
-        print(f"Taille du fichier: {os.path.getsize(excel_file)} bytes")
+    # Prioriser les fichiers avec certains mots-clés
+    priority_keywords = ['daci', 'orano', 'acms', 'publipostage', 'entreprise']
     
-    return excel_files
+    for excel_file in excel_files:
+        file_lower = excel_file.lower()
+        if any(keyword in file_lower for keyword in priority_keywords):
+            logger.info(f"Fichier Excel prioritaire sélectionné: {excel_file}")
+            return excel_file
+    
+    # Prendre le premier fichier Excel trouvé
+    if excel_files:
+        logger.info(f"Premier fichier Excel utilisé: {excel_files[0]}")
+        return excel_files[0]
+    
+    logger.warning("Aucun fichier Excel trouvé!")
+    return None
 
-# Charger les entreprises à partir du fichier Excel avec debug
-COMPANIES = []
-try:
-    # Debug du fichier Excel
-    excel_files = debug_excel_loading()
-    
-    # Si le fichier configuré n'existe pas, essayer de le trouver
-    excel_file = app.config['COMPANIES_EXCEL']
-    if not os.path.exists(excel_file):
-        print(f"Fichier {excel_file} non trouvé, recherche automatique...")
+def load_companies_safely():
+    """Charge les entreprises avec gestion d'erreurs robuste"""
+    try:
+        excel_file = find_excel_file()
         
-        # Chercher un fichier Excel contenant "DACI" ou "ORANO"
-        for filename in excel_files:
-            base_filename = os.path.basename(filename)
-            if any(keyword in base_filename.upper() for keyword in ['DACI', 'ORANO', 'ACMS', 'PUBLIPOSTAGE']):
-                excel_file = filename
-                app.config['COMPANIES_EXCEL'] = excel_file
-                print(f"Utilisation du fichier trouvé: {excel_file}")
-                break
-    
-    if os.path.exists(excel_file):
-        print(f"Chargement du fichier: {excel_file}")
-        COMPANIES = load_companies_from_excel(excel_file)
-        print(f"Chargé {len(COMPANIES)} entreprises depuis le fichier Excel")
+        if not excel_file:
+            logger.warning("Aucun fichier Excel trouvé, création d'entreprises de test")
+            return create_test_companies()
         
-        # Afficher quelques exemples
-        if COMPANIES:
-            print("=== EXEMPLES D'ENTREPRISES CHARGÉES ===")
-            for i, company in enumerate(COMPANIES[:5]):
-                print(f"Entreprise {i+1}:")
-                print(f"  - ID: {company.get('id', 'N/A')}")
-                print(f"  - Nom: {company.get('name', 'N/A')}")
-                print(f"  - Domaine: {company.get('domain', 'N/A')}")
-                print(f"  - Localisation: {company.get('location', 'N/A')}")
-                print(f"  - Certifications: {company.get('certifications', [])}")
-                print(f"  - CA: {company.get('ca', 'N/A')}")
-                print(f"  - Effectifs: {company.get('employees', 'N/A')}")
-                print()
-        else:
-            print("ATTENTION: Aucune entreprise n'a été extraite du fichier Excel!")
-    else:
-        print(f"ERREUR: Aucun fichier Excel trouvé !")
-        print("Fichiers Excel disponibles:", excel_files)
-        print("Vérifiez que votre fichier Excel est bien présent dans le répertoire du projet.")
+        logger.info(f"Chargement des entreprises depuis: {excel_file}")
+        companies = load_companies_from_excel(excel_file)
         
-except Exception as e:
-    print(f"Erreur lors du chargement du fichier Excel: {e}")
-    print(traceback.format_exc())
-    print("=== INFORMATIONS DE DEBUG ===")
-    print(f"Répertoire de travail: {os.getcwd()}")
-    print(f"Fichiers dans le répertoire: {os.listdir('.')}")
+        if not companies:
+            logger.warning("Aucune entreprise extraite, création d'entreprises de test")
+            return create_test_companies()
+        
+        logger.info(f"✅ {len(companies)} entreprises chargées avec succès")
+        
+        # Afficher un résumé des domaines
+        domain_stats = {}
+        for company in companies:
+            domain = company.get('domain', 'Autre')
+            domain_stats[domain] = domain_stats.get(domain, 0) + 1
+        
+        logger.info("Répartition par domaine:")
+        for domain, count in domain_stats.items():
+            logger.info(f"  - {domain}: {count}")
+        
+        return companies
+        
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement des entreprises: {e}")
+        logger.error(traceback.format_exc())
+        return create_test_companies()
 
-# Extensions autorisées pour les fichiers
+def create_test_companies():
+    """Crée des entreprises de test si aucun fichier Excel n'est disponible"""
+    logger.info("Création d'entreprises de test...")
+    
+    test_companies = [
+        {
+            'id': 'ENT_001',
+            'name': 'TECHNI-MAINTENANCE SAS',
+            'location': 'Chooz, Ardennes (08)',
+            'domain': 'Maintenance',
+            'certifications': ['MASE', 'ISO 9001'],
+            'ca': '2.5M€',
+            'employees': '35',
+            'contact': {'email': 'contact@techni-maintenance.fr', 'phone': '03.24.42.XX.XX'},
+            'experience': 'Spécialisée dans la maintenance d\'échangeurs thermiques depuis 15 ans. Références sur centrales nucléaires.',
+            'lots_marches': [
+                {'type': 'Maintenance', 'description': 'Nettoyage échangeurs à plaques - CNPE Chooz (2022)'},
+                {'type': 'Maintenance', 'description': 'Maintenance circuit primaire - CNPE Cattenom (2021)'}
+            ],
+            'score': 0
+        },
+        {
+            'id': 'ENT_002',
+            'name': 'HYDRAULIQUE SERVICES',
+            'location': 'Charleville-Mézières, Ardennes (08)',
+            'domain': 'Hydraulique',
+            'certifications': ['MASE', 'ISO 14001', 'CEFRI'],
+            'ca': '1.8M€',
+            'employees': '28',
+            'contact': {'email': 'direction@hydraulique-services.fr'},
+            'experience': 'Expert en circuits hydrauliques industriels. Interventions régulières sur sites nucléaires.',
+            'lots_marches': [
+                {'type': 'Hydraulique', 'description': 'Rénovation circuit hydraulique - Site industriel (2023)'},
+                {'type': 'Maintenance', 'description': 'Nettoyage tuyauteries - CNPE Chooz (2022)'}
+            ],
+            'score': 0
+        },
+        {
+            'id': 'ENT_003',
+            'name': 'ELECTRO-TECH GRAND EST',
+            'location': 'Metz, Moselle (57)',
+            'domain': 'Électricité',
+            'certifications': ['MASE', 'ISO 9001', 'QUALIBAT'],
+            'ca': '3.2M€',
+            'employees': '45',
+            'contact': {'email': 'contact@electro-tech-ge.fr', 'phone': '03.87.XX.XX.XX'},
+            'experience': 'Installations électriques industrielles complexes. Habilitations nucléaires.',
+            'lots_marches': [
+                {'type': 'Électricité', 'description': 'Installation électrique - Site industriel Moselle (2023)'},
+                {'type': 'Maintenance', 'description': 'Maintenance électrique - CNPE Cattenom (2022)'}
+            ],
+            'score': 0
+        },
+        {
+            'id': 'ENT_004',
+            'name': 'MECANIQUE PRECISION',
+            'location': 'Reims, Marne (51)',
+            'domain': 'Mécanique',
+            'certifications': ['ISO 9001', 'ISO 14001'],
+            'ca': '1.2M€',
+            'employees': '22',
+            'contact': {'email': 'info@mecanique-precision.fr'},
+            'experience': 'Usinage de précision pour l\'industrie. Pièces pour équipements thermiques.',
+            'lots_marches': [
+                {'type': 'Mécanique', 'description': 'Fabrication pièces échangeurs - Industrie (2023)'}
+            ],
+            'score': 0
+        },
+        {
+            'id': 'ENT_005',
+            'name': 'BTP CONSTRUCTION EST',
+            'location': 'Strasbourg, Bas-Rhin (67)',
+            'domain': 'Bâtiment',
+            'certifications': ['QUALIBAT', 'RGE'],
+            'ca': '4.1M€',
+            'employees': '58',
+            'contact': {'email': 'commercial@btp-construction-est.fr'},
+            'experience': 'Gros œuvre et second œuvre pour l\'industrie. Constructions spécialisées.',
+            'lots_marches': [
+                {'type': 'Bâtiment', 'description': 'Construction bâtiment technique - Site industriel (2023)'}
+            ],
+            'score': 0
+        }
+    ]
+    
+    logger.info(f"✅ {len(test_companies)} entreprises de test créées")
+    return test_companies
+
+# Charger les entreprises au démarrage
+logger.info("=== DÉMARRAGE APPLICATION ===")
+COMPANIES = load_companies_safely()
+logger.info(f"Application démarrée avec {len(COMPANIES)} entreprises")
+
+# Extensions de fichiers autorisées
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Définir l'historique des demandes statique pour la démonstration
+# Historique des demandes (exemple)
 ACTIVITIES = [
     {
         'icon': '📝',
-        'title': 'Projet de rénovation des échangeurs à plaques',
+        'title': 'Projet de nettoyage des échangeurs à plaques - CNPE Chooz',
         'timestamp': 'il y a 2 jours',
         'url': '/search'
     },
     {
         'icon': '👥',
-        'title': 'Consultation lancée pour le projet de maintenance',
+        'title': 'Consultation maintenance circuit hydraulique',
         'timestamp': 'il y a 5 jours',
         'url': '/search'
     },
     {
         'icon': '📄',
-        'title': 'Documents générés pour le projet hydraulique',
+        'title': 'Documents générés pour projet électrique',
         'timestamp': 'il y a 1 semaine',
         'url': '/documents'
     }
 ]
 
-# Routes pour les pages web
+# ================================================
+# ROUTES PRINCIPALES
+# ================================================
+
 @app.route('/')
 def index():
     return render_template('pages/dashboard.html', page='dashboard', activities=ACTIVITIES)
@@ -154,9 +257,7 @@ def search():
 
 @app.route('/database')
 def database():
-    print(f"Route /database appelée - Nombre d'entreprises: {len(COMPANIES)}")
-    if COMPANIES:
-        print(f"Première entreprise: {COMPANIES[0]}")
+    logger.info(f"Page base de données - {len(COMPANIES)} entreprises")
     return render_template('pages/database.html', page='database', companies=COMPANIES)
 
 @app.route('/guide')
@@ -169,25 +270,16 @@ def support():
 
 @app.route('/documents')
 def documents():
-    # Récupérer la liste des documents types
     template_docs = []
     try:
         if os.path.exists(app.config['TEMPLATE_DOCS']):
             for filename in os.listdir(app.config['TEMPLATE_DOCS']):
-                file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
-                if os.path.isfile(file_path) and not filename.startswith('.'):
-                    # Déterminer le type de document
-                    doc_type = 'autre'
-                    if 'reglement' in filename.lower():
-                        doc_type = 'reglement'
-                    elif 'marche' in filename.lower() or 'cpa' in filename.lower():
-                        doc_type = 'marche'
-                    elif 'lettre' in filename.lower():
-                        doc_type = 'lettre'
-                    elif 'grille' in filename.lower() or 'evalua' in filename.lower():
-                        doc_type = 'grille'
+                if filename.startswith('.'):
+                    continue
                     
-                    # Obtenir la date de modification
+                file_path = os.path.join(app.config['TEMPLATE_DOCS'], filename)
+                if os.path.isfile(file_path):
+                    doc_type = determine_document_type(filename)
                     mod_time = os.path.getmtime(file_path)
                     mod_date = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y')
                     
@@ -200,204 +292,199 @@ def documents():
                         'url': f"/api/documents/template/download/{filename}"
                     })
     except Exception as e:
-        print(f"Erreur lors de la récupération des documents types: {e}")
+        logger.error(f"Erreur chargement documents types: {e}")
     
     return render_template('pages/documents.html', page='documents', documents=template_docs)
 
-# Routes API
+def determine_document_type(filename):
+    """Détermine le type de document basé sur le nom de fichier"""
+    filename_lower = filename.lower()
+    
+    if any(word in filename_lower for word in ['reglement', 'règlement']):
+        return 'reglement'
+    elif any(word in filename_lower for word in ['marche', 'marché', 'cpa']):
+        return 'marche'
+    elif any(word in filename_lower for word in ['lettre']):
+        return 'lettre'
+    elif any(word in filename_lower for word in ['grille', 'evalua']):
+        return 'grille'
+    else:
+        return 'autre'
+
+# ================================================
+# ROUTES API
+# ================================================
+
 @app.route('/api/companies', methods=['GET'])
 def get_all_companies():
+    """Retourne toutes les entreprises"""
     try:
-        print(f"API /api/companies appelée - Retour de {len(COMPANIES)} entreprises")
+        logger.info(f"API /api/companies - Retour de {len(COMPANIES)} entreprises")
         return jsonify({"success": True, "data": COMPANIES})
     except Exception as e:
-        print(f"Erreur dans /api/companies: {e}")
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route('/api/files/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "Aucun fichier fourni"})
-        
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"success": False, "message": "Aucun fichier sélectionné"})
-        
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        
-        return jsonify({
-            "success": True,
-            "message": "Fichier téléversé avec succès",
-            "data": {
-                "originalName": file.filename,
-                "fileName": filename,
-                "path": file_path,
-                "url": f"/api/files/download/{filename}"
-            }
-        })
-    
-    return jsonify({"success": False, "message": "Type de fichier non autorisé"})
+        logger.error(f"Erreur API companies: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/files/parse-document', methods=['POST'])
 def parse_document():
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "Aucun fichier fourni"})
+    """Parse un document uploadé"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"success": False, "message": "Aucun fichier fourni"}), 400
+            
+        file = request.files['file']
         
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"success": False, "message": "Aucun fichier sélectionné"})
-    
-    if file and allowed_file(file.filename):
+        if file.filename == '':
+            return jsonify({"success": False, "message": "Aucun fichier sélectionné"}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({"success": False, "message": "Type de fichier non autorisé"}), 400
+        
+        # Sauvegarder le fichier
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
-        try:
-            # Lire le contenu du fichier
-            text = ""
-            if filename.endswith(('.docx', '.doc')):
-                try:
-                    from docx import Document
-                    doc = Document(file_path)
-                    text = "\n".join([para.text for para in doc.paragraphs])
-                except ImportError:
-                    text = f"[Contenu du document {filename} - Module python-docx manquant]"
-            elif filename.endswith('.pdf'):
-                try:
-                    import PyPDF2
-                    with open(file_path, 'rb') as f:
-                        pdf_reader = PyPDF2.PdfReader(f)
-                        text = "\n".join([page.extract_text() for page in pdf_reader.pages])
-                except ImportError:
-                    text = f"[Contenu du PDF {filename} - Module PyPDF2 manquant]"
-            elif filename.endswith('.txt'):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    text = f.read()
-            elif filename.endswith(('.xlsx', '.xls')):
-                # Pour les fichiers Excel
-                df = pd.read_excel(file_path)
-                text = df.to_string()
-            else:
-                text = f"[Contenu du fichier {filename}]"
-            
-            print(f"Document analysé: {filename}, taille: {len(text)} caractères")
-            
-            return jsonify({
-                "success": True,
-                "data": {
-                    "fileName": filename,
-                    "mimeType": file.mimetype,
-                    "text": text
-                }
-            })
-        except Exception as e:
-            print(f"Erreur lors de l'analyse du document: {e}")
-            return jsonify({"success": False, "message": f"Erreur lors de l'analyse du document: {str(e)}"})
-    
-    return jsonify({"success": False, "message": "Type de fichier non autorisé"})
+        logger.info(f"Fichier sauvé: {file_path}")
+        
+        # Extraire le texte selon le type de fichier
+        text = extract_text_from_file(file_path, filename)
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "fileName": filename,
+                "mimeType": file.mimetype,
+                "text": text
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Erreur parse document: {e}")
+        return jsonify({"success": False, "message": f"Erreur: {str(e)}"}), 500
 
-@app.route('/api/files/download/<filename>')
-def download_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+def extract_text_from_file(file_path, filename):
+    """Extrait le texte d'un fichier selon son type"""
+    try:
+        if filename.endswith('.txt'):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        elif filename.endswith('.pdf'):
+            try:
+                import PyPDF2
+                with open(file_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    text = ""
+                    for page in pdf_reader.pages:
+                        text += page.extract_text() + "\n"
+                    return text
+            except ImportError:
+                return f"[Contenu PDF - {filename}] Module PyPDF2 non disponible"
+        
+        elif filename.endswith(('.docx', '.doc')):
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                text = "\n".join([para.text for para in doc.paragraphs])
+                return text
+            except ImportError:
+                return f"[Contenu DOCX - {filename}] Module python-docx non disponible"
+        
+        elif filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(file_path)
+            return df.to_string()
+        
+        else:
+            return f"[Fichier {filename}] - Type non supporté pour extraction de texte"
+            
+    except Exception as e:
+        logger.error(f"Erreur extraction texte: {e}")
+        return f"[Erreur extraction texte du fichier {filename}]"
 
 @app.route('/api/ia/analyze-document', methods=['POST'])
 def api_analyze_document():
-    data = request.json
-    document_text = data.get('documentText', '')
-    
-    print(f"=== ANALYSE DOCUMENT API ===")
-    print(f"Longueur du texte reçu: {len(document_text)}")
-    
-    if not document_text:
-        return jsonify({"success": False, "message": "Le texte du document est requis"})
-    
-    # Analyser avec Prisme AI
+    """Analyse un document avec l'IA"""
     try:
-        print("Appel de analyze_document...")
+        data = request.json
+        document_text = data.get('documentText', '')
+        
+        logger.info(f"=== ANALYSE DOCUMENT ===")
+        logger.info(f"Longueur texte: {len(document_text)} caractères")
+        
+        if not document_text:
+            return jsonify({"success": False, "message": "Texte du document requis"}), 400
+        
+        # Analyser avec l'API Mistral
         analysis_results = analyze_document(document_text, app.config['PRISME_API_KEY'])
-        print(f"Résultat d'analyse: {len(analysis_results.get('keywords', []))} mots-clés, {len(analysis_results.get('selectionCriteria', []))} critères de sélection")
+        
+        logger.info(f"Analyse terminée: {len(analysis_results.get('keywords', []))} mots-clés")
+        
         return jsonify({"success": True, "data": analysis_results})
+        
     except Exception as e:
-        print(f"Erreur dans analyze_document: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)})
+        logger.error(f"Erreur analyse document: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/ia/find-matching-companies', methods=['POST'])
 def api_find_matching_companies():
-    data = request.json
-    criteria = data.get('criteria', [])
-    
-    print(f"=== RECHERCHE ENTREPRISES ===")
-    print(f"Nombre de critères reçus: {len(criteria)}")
-    print(f"Nombre d'entreprises disponibles: {len(COMPANIES)}")
-    
-    if not criteria:
-        return jsonify({"success": False, "message": "Les critères sont requis"})
-    
-    if not COMPANIES:
-        return jsonify({"success": False, "message": "Aucune entreprise disponible dans la base de données"})
-    
+    """Trouve les entreprises correspondant aux critères"""
     try:
-        # Utiliser les entreprises pré-chargées
-        matched_companies = match_companies(COMPANIES, criteria)
-        print(f"Nombre d'entreprises correspondantes trouvées: {len(matched_companies)}")
+        data = request.json
+        criteria = data.get('criteria', [])
         
+        logger.info(f"=== MATCHING ENTREPRISES ===")
+        logger.info(f"Critères reçus: {len(criteria)}")
+        logger.info(f"Entreprises disponibles: {len(COMPANIES)}")
+        
+        if not criteria:
+            return jsonify({"success": False, "message": "Critères requis"}), 400
+        
+        if not COMPANIES:
+            return jsonify({"success": False, "message": "Aucune entreprise en base"}), 400
+        
+        # Utiliser l'algorithme de matching amélioré
+        matched_companies = match_companies(COMPANIES, criteria)
+        
+        logger.info(f"Matching terminé: {len(matched_companies)} entreprises")
         if matched_companies:
-            print(f"Première entreprise correspondante: {matched_companies[0]['name']} (score: {matched_companies[0]['score']})")
+            logger.info(f"Meilleur match: {matched_companies[0]['name']} ({matched_companies[0]['score']}%)")
         
         return jsonify({"success": True, "data": matched_companies})
+        
     except Exception as e:
-        print(f"Erreur lors du matching: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route('/api/ia/agent-query', methods=['POST'])
-def api_agent_query():
-    data = request.json
-    question = data.get('question', '')
-    
-    if not question:
-        return jsonify({"success": False, "message": "La question est requise"})
-    
-    try:
-        # Interroger l'agent Prisme AI
-        answer = get_agent_answer(question, app.config['PRISME_API_KEY'], app.config['PRISME_AGENT_ID'])
-        return jsonify({"success": True, "data": {"answer": answer}})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.error(f"Erreur matching: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/documents/generate', methods=['POST'])
 def api_generate_document():
-    data = request.json
-    template_type = data.get('templateType')
-    project_data = data.get('projectData', {})
-    companies = data.get('companies', [])
-    
-    if not template_type:
-        return jsonify({"success": False, "message": "Le type de document est requis"})
-    
+    """Génère un document de consultation"""
     try:
+        data = request.json
+        template_type = data.get('templateType')
+        project_data = data.get('projectData', {})
+        companies = data.get('companies', [])
+        
+        logger.info(f"Génération document: {template_type}")
+        
+        if not template_type:
+            return jsonify({"success": False, "message": "Type de document requis"}), 400
+        
+        # Générer le document
         document_content = generate_document(
             template_type, 
             project_data, 
             app.config['PRISME_API_KEY']
         )
         
-        # Enregistrer le document généré
+        # Sauvegarder le document
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         project_id = project_data.get('id', 'projet').replace(' ', '_')
         
-        # Déterminer l'extension du fichier
-        extension = 'docx'
-        if template_type == 'grilleEvaluation':
-            extension = 'xlsx'
+        extension = 'xlsx' if template_type == 'grilleEvaluation' else 'txt'
         
-        # Créer un préfixe selon le type de document
         prefix_map = {
             'projetMarche': 'PM',
             'reglementConsultation': 'RC',
@@ -406,13 +493,13 @@ def api_generate_document():
         }
         prefix = prefix_map.get(template_type, 'DOC')
         
-        # Construire le nom du fichier
         filename = f"{prefix}_{project_id}_{timestamp}.{extension}"
         file_path = os.path.join(app.config['GENERATED_DOCS'], filename)
         
-        # Écrire le contenu dans un fichier
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(document_content)
+        
+        logger.info(f"Document généré: {filename}")
         
         return jsonify({
             "success": True,
@@ -422,56 +509,65 @@ def api_generate_document():
                 "type": extension
             }
         })
+        
     except Exception as e:
-        print(f"Erreur lors de la génération du document: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)})
+        logger.error(f"Erreur génération document: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ================================================
+# ROUTES DE TÉLÉCHARGEMENT
+# ================================================
 
 @app.route('/api/documents/download/<filename>')
 def download_document(filename):
+    """Télécharge un document généré"""
     return send_from_directory(app.config['GENERATED_DOCS'], filename)
 
 @app.route('/api/documents/template/download/<filename>')
 def download_template_document(filename):
+    """Télécharge un document template"""
     return send_from_directory(app.config['TEMPLATE_DOCS'], filename)
 
+@app.route('/api/files/download/<filename>')
+def download_file(filename):
+    """Télécharge un fichier uploadé"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 # ================================================
-# ROUTES API POUR LA BASE DE DONNÉES
+# ROUTES BASE DE DONNÉES
 # ================================================
 
 @app.route('/api/database/import-excel', methods=['POST'])
 def import_excel():
-    """Import d'entreprises depuis un fichier Excel"""
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "Aucun fichier fourni"})
-        
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"success": False, "message": "Aucun fichier sélectionné"})
-    
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        return jsonify({"success": False, "message": "Format de fichier non supporté. Utilisez .xlsx ou .xls"})
-    
+    """Importe des entreprises depuis Excel"""
     try:
-        # Sauvegarder temporairement le fichier
+        if 'file' not in request.files:
+            return jsonify({"success": False, "message": "Aucun fichier fourni"}), 400
+            
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({"success": False, "message": "Aucun fichier sélectionné"}), 400
+        
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({"success": False, "message": "Format Excel requis"}), 400
+        
+        # Sauvegarder temporairement
         filename = secure_filename(file.filename)
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{filename}")
         file.save(temp_path)
         
-        print(f"Import Excel: fichier sauvé temporairement à {temp_path}")
+        logger.info(f"Import Excel: {temp_path}")
         
-        # Charger les entreprises depuis le fichier
+        # Charger les nouvelles entreprises
         new_companies = load_companies_from_excel(temp_path)
-        print(f"Import Excel: {len(new_companies)} entreprises extraites")
         
         # Supprimer le fichier temporaire
         os.remove(temp_path)
         
         if new_companies:
-            # Mettre à jour la liste globale des entreprises
             global COMPANIES
-            # Fusionner avec les entreprises existantes (éviter les doublons par nom)
+            # Fusionner sans doublons
             existing_names = {comp['name'].lower() for comp in COMPANIES}
             added_count = 0
             
@@ -480,8 +576,7 @@ def import_excel():
                     COMPANIES.append(company)
                     added_count += 1
             
-            print(f"Import Excel: {added_count} nouvelles entreprises ajoutées")
-            print(f"Total entreprises après import: {len(COMPANIES)}")
+            logger.info(f"Import réussi: {added_count} nouvelles entreprises")
             
             return jsonify({
                 "success": True, 
@@ -490,126 +585,124 @@ def import_excel():
                 "total": len(new_companies)
             })
         else:
-            return jsonify({"success": False, "message": "Aucune entreprise trouvée dans le fichier"})
+            return jsonify({"success": False, "message": "Aucune entreprise trouvée"}), 400
             
     except Exception as e:
-        print(f"Erreur lors de l'import Excel: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "message": f"Erreur lors de l'import: {str(e)}"})
-
-@app.route('/api/database/delete-company', methods=['DELETE'])
-def delete_company():
-    """Supprime une entreprise"""
-    data = request.json
-    company_id = data.get('id')
-    
-    if not company_id:
-        return jsonify({"success": False, "message": "L'identifiant de l'entreprise est requis"})
-    
-    global COMPANIES
-    # Trouver et supprimer l'entreprise
-    original_count = len(COMPANIES)
-    COMPANIES = [company for company in COMPANIES if company['id'] != company_id]
-    
-    if len(COMPANIES) < original_count:
-        print(f"Entreprise {company_id} supprimée. Total: {len(COMPANIES)}")
-        return jsonify({"success": True, "message": "Entreprise supprimée avec succès"})
-    else:
-        return jsonify({"success": False, "message": "Entreprise non trouvée"})
-
-@app.route('/api/database/update-company', methods=['POST'])
-def update_company():
-    """Met à jour une entreprise existante"""
-    data = request.json
-    company_id = data.get('id')
-    
-    if not company_id:
-        return jsonify({"success": False, "message": "L'identifiant de l'entreprise est requis"})
-    
-    # Trouver l'entreprise dans la liste
-    for i, company in enumerate(COMPANIES):
-        if company['id'] == company_id:
-            # Mettre à jour les champs fournis
-            for key, value in data.items():
-                if key != 'id':
-                    COMPANIES[i][key] = value
-            
-            print(f"Entreprise {company_id} mise à jour: {COMPANIES[i]['name']}")
-            return jsonify({"success": True, "data": COMPANIES[i]})
-    
-    return jsonify({"success": False, "message": "Entreprise non trouvée"})
+        logger.error(f"Erreur import Excel: {e}")
+        return jsonify({"success": False, "message": f"Erreur: {str(e)}"}), 500
 
 @app.route('/api/database/add-company', methods=['POST'])
 def add_company():
     """Ajoute une nouvelle entreprise"""
-    data = request.json
-    company_name = data.get('name')
-    
-    if not company_name:
-        return jsonify({"success": False, "message": "Le nom de l'entreprise est requis"})
-    
-    # Créer un nouvel ID
-    company_id = f"ENT_{str(len(COMPANIES) + 1).zfill(3)}"
-    
-    # Créer la nouvelle entreprise avec le nouveau format
-    new_company = {
-        'id': company_id,
-        'name': company_name,
-        'domain': data.get('domain', 'Non spécifié'),
-        'location': data.get('location', 'Non spécifié'),
-        'certifications': data.get('certifications', []),
-        'ca': data.get('ca', 'Non spécifié'),
-        'employees': data.get('employees', 'Non spécifié'),
-        'contact': data.get('contact', {}),
-        'experience': data.get('experience', 'Non spécifié'),
-        'score': 0
-    }
-    
-    # Ajouter à la liste
-    COMPANIES.append(new_company)
-    
-    print(f"Nouvelle entreprise ajoutée: {company_name} (ID: {company_id})")
-    print(f"Total entreprises: {len(COMPANIES)}")
-    
-    return jsonify({"success": True, "data": new_company})
-
-@app.route('/api/support/send-message', methods=['POST'])
-def send_support_message():
-    data = request.json
-    name = data.get('name', '')
-    email = data.get('email', '')
-    subject = data.get('subject', '')
-    message = data.get('message', '')
-    
-    if not name or not email or not subject or not message:
-        return jsonify({"success": False, "message": "Tous les champs sont requis"})
-    
     try:
-        # Enregistrer le message dans un fichier pour démonstration
-        support_dir = 'support_messages'
-        os.makedirs(support_dir, exist_ok=True)
+        data = request.json
+        company_name = data.get('name')
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        message_file = os.path.join(support_dir, f"message_{timestamp}.txt")
+        if not company_name:
+            return jsonify({"success": False, "message": "Nom requis"}), 400
         
-        with open(message_file, 'w', encoding='utf-8') as f:
-            f.write(f"De: {name} ({email})\n")
-            f.write(f"Sujet: {subject}\n")
-            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("\n")
-            f.write(message)
+        # Créer nouvelle entreprise
+        company_id = f"ENT_{str(len(COMPANIES) + 1).zfill(3)}"
         
-        return jsonify({
-            "success": True,
-            "message": "Message envoyé avec succès"
-        })
+        new_company = {
+            'id': company_id,
+            'name': company_name,
+            'domain': data.get('domain', 'Autre'),
+            'location': data.get('location', 'Non spécifié'),
+            'certifications': data.get('certifications', []),
+            'ca': data.get('ca', 'Non spécifié'),
+            'employees': data.get('employees', 'Non spécifié'),
+            'contact': data.get('contact', {}),
+            'experience': data.get('experience', 'Non spécifié'),
+            'lots_marches': [],
+            'score': 0
+        }
+        
+        COMPANIES.append(new_company)
+        
+        logger.info(f"Entreprise ajoutée: {company_name}")
+        
+        return jsonify({"success": True, "data": new_company})
+        
     except Exception as e:
-        return jsonify({"success": False, "message": f"Erreur lors de l'envoi du message: {str(e)}"})
+        logger.error(f"Erreur ajout entreprise: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
-# Démarrer l'application
+@app.route('/api/database/update-company', methods=['POST'])
+def update_company():
+    """Met à jour une entreprise"""
+    try:
+        data = request.json
+        company_id = data.get('id')
+        
+        if not company_id:
+            return jsonify({"success": False, "message": "ID requis"}), 400
+        
+        # Trouver et mettre à jour l'entreprise
+        for i, company in enumerate(COMPANIES):
+            if company['id'] == company_id:
+                for key, value in data.items():
+                    if key != 'id':
+                        COMPANIES[i][key] = value
+                
+                logger.info(f"Entreprise mise à jour: {COMPANIES[i]['name']}")
+                return jsonify({"success": True, "data": COMPANIES[i]})
+        
+        return jsonify({"success": False, "message": "Entreprise non trouvée"}), 404
+        
+    except Exception as e:
+        logger.error(f"Erreur mise à jour: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/database/delete-company', methods=['DELETE'])
+def delete_company():
+    """Supprime une entreprise"""
+    try:
+        data = request.json
+        company_id = data.get('id')
+        
+        if not company_id:
+            return jsonify({"success": False, "message": "ID requis"}), 400
+        
+        global COMPANIES
+        original_count = len(COMPANIES)
+        COMPANIES = [company for company in COMPANIES if company['id'] != company_id]
+        
+        if len(COMPANIES) < original_count:
+            logger.info(f"Entreprise supprimée: {company_id}")
+            return jsonify({"success": True, "message": "Entreprise supprimée"})
+        else:
+            return jsonify({"success": False, "message": "Entreprise non trouvée"}), 404
+            
+    except Exception as e:
+        logger.error(f"Erreur suppression: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# ================================================
+# GESTIONNAIRE D'ERREURS
+# ================================================
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"success": False, "error": "Ressource non trouvée"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Erreur interne: {error}")
+    return jsonify({"success": False, "error": "Erreur interne du serveur"}), 500
+
+@app.errorhandler(413)
+def too_large(error):
+    return jsonify({"success": False, "error": "Fichier trop volumineux"}), 413
+
+# ================================================
+# DÉMARRAGE DE L'APPLICATION
+# ================================================
+
 if __name__ == '__main__':
-    print("=== DÉMARRAGE DU SERVEUR ===")
-    print(f"Nombre d'entreprises chargées: {len(COMPANIES)}")
-    print("Serveur démarré sur http://localhost:5001")
-    print("=== READY ===")
+    logger.info("=== DÉMARRAGE DU SERVEUR ===")
+    logger.info(f"Entreprises chargées: {len(COMPANIES)}")
+    logger.info("Serveur disponible sur: http://localhost:5001")
+    logger.info("=== PRÊT ===")
+    
     app.run(debug=True, host='0.0.0.0', port=5001)

@@ -1,370 +1,474 @@
-# utils/company_matcher.py - Version mise à jour pour le nouveau format des entreprises
+# utils/company_matcher.py - Version corrigée avec matching basé sur les données réelles
 
 import re
 import json
+from difflib import SequenceMatcher
 
 def match_companies(companies, criteria):
     """
-    Trouve les entreprises qui correspondent le mieux aux critères de sélection
-    
-    Args:
-        companies: Liste des entreprises à évaluer
-        criteria: Liste des critères de sélection
-        
-    Returns:
-        Liste des entreprises correspondantes avec scores de match
+    Trouve les entreprises qui correspondent le mieux aux critères avec scoring réel
     """
-    # Ne conserver que les critères sélectionnés
+    print(f"=== MATCHING ENTREPRISES ===")
+    print(f"Entreprises à analyser: {len(companies)}")
+    print(f"Critères reçus: {len(criteria)}")
+    
+    # Filtrer les critères sélectionnés
     selected_criteria = [c for c in criteria if c.get('selected', True)]
+    print(f"Critères sélectionnés: {len(selected_criteria)}")
     
     if not selected_criteria:
-        # Si aucun critère n'est sélectionné, toutes les entreprises correspondent
-        return [{'score': 100, 'matchDetails': {}, **company} for company in companies]
+        # Si aucun critère, retourner toutes les entreprises avec score de base
+        return [{'score': 80, 'matchDetails': {}, **company} for company in companies]
     
     matched_companies = []
     
     for company in companies:
-        score = 0
-        match_details = {}
-        
-        for criterion in selected_criteria:
-            criterion_name = criterion['name'].lower()
-            criterion_desc = criterion.get('description', '').lower()
+        try:
+            # Calculer le score total pour cette entreprise
+            total_score = 0
+            match_details = {}
             
-            # Calculer le score pour ce critère
-            criterion_score = calculate_criterion_score(company, criterion)
+            for criterion in selected_criteria:
+                criterion_score = calculate_advanced_criterion_score(company, criterion)
+                match_details[criterion['name']] = criterion_score
+                total_score += criterion_score
             
-            # Stocker le détail du score
-            match_details[criterion['name']] = criterion_score
+            # Score moyen
+            average_score = round(total_score / len(selected_criteria)) if selected_criteria else 50
             
-            # Ajouter au score total
-            score += criterion_score
-        
-        # Calculer le score moyen
-        if selected_criteria:
-            score = round(score / len(selected_criteria))
-        
-        matched_companies.append({
-            **company,
-            'score': score,
-            'matchDetails': match_details,
-            'selected': True  # Par défaut, toutes les entreprises sont sélectionnées
-        })
+            # Bonus pour entreprises avec historique de projets similaires
+            historical_bonus = calculate_historical_bonus(company)
+            final_score = min(100, average_score + historical_bonus)
+            
+            matched_company = {
+                **company,
+                'score': final_score,
+                'matchDetails': match_details,
+                'selected': True
+            }
+            
+            matched_companies.append(matched_company)
+            
+        except Exception as e:
+            print(f"Erreur matching entreprise {company.get('name', 'Unknown')}: {e}")
+            # En cas d'erreur, ajouter avec un score par défaut
+            matched_companies.append({
+                **company,
+                'score': 50,
+                'matchDetails': {'Erreur': 'Calcul impossible'},
+                'selected': True
+            })
     
-    # Trier par score (du plus élevé au plus bas)
+    # Trier par score décroissant
     matched_companies.sort(key=lambda x: x['score'], reverse=True)
+    
+    print(f"Entreprises matchées: {len(matched_companies)}")
+    if matched_companies:
+        print(f"Meilleur score: {matched_companies[0]['score']}% ({matched_companies[0]['name']})")
+        print(f"Score moyen: {sum(c['score'] for c in matched_companies) / len(matched_companies):.1f}%")
     
     return matched_companies
 
-def calculate_criterion_score(company, criterion):
+def calculate_advanced_criterion_score(company, criterion):
     """
-    Calcule le score de correspondance pour un critère spécifique
-    
-    Args:
-        company: Données de l'entreprise
-        criterion: Critère à évaluer
-        
-    Returns:
-        Score entre 0 et 100
+    Calcule un score avancé basé sur les données réelles de l'entreprise
     """
     criterion_name = criterion['name'].lower()
     criterion_desc = criterion.get('description', '').lower()
     
-    # Certification
-    if 'certification' in criterion_name or 'mase' in criterion_name or 'iso' in criterion_name:
-        return match_certification(company, criterion)
+    # Analyse par type de critère
+    if any(word in criterion_name for word in ['certification', 'mase', 'iso', 'qualibat']):
+        return match_certification_advanced(company, criterion)
     
-    # Expérience
-    if 'expérience' in criterion_name or 'projet' in criterion_name or 'référence' in criterion_name:
-        return match_experience(company, criterion)
+    elif any(word in criterion_name for word in ['expérience', 'projet', 'référence', 'historique']):
+        return match_experience_advanced(company, criterion)
     
-    # Zone d'intervention
-    if 'zone' in criterion_name or 'région' in criterion_name or 'localisation' in criterion_name:
-        return match_zone(company, criterion)
+    elif any(word in criterion_name for word in ['zone', 'région', 'localisation', 'géographique']):
+        return match_geographic_advanced(company, criterion)
     
-    # Capacité / taille
-    if 'capacité' in criterion_name or 'taille' in criterion_name or 'effectif' in criterion_name:
-        return match_capacity(company, criterion)
+    elif any(word in criterion_name for word in ['capacité', 'taille', 'effectif', 'ca', 'chiffre']):
+        return match_capacity_advanced(company, criterion)
     
-    # Domaine d'activité
-    if 'domaine' in criterion_name or 'activité' in criterion_name or 'spécialité' in criterion_name:
-        return match_domain(company, criterion)
+    elif any(word in criterion_name for word in ['domaine', 'activité', 'spécialité', 'métier']):
+        return match_domain_advanced(company, criterion)
     
-    # Correspondance générique
-    return match_generic(company, criterion)
+    elif any(word in criterion_name for word in ['technique', 'technologique', 'compétence']):
+        return match_technical_advanced(company, criterion)
+    
+    else:
+        return match_generic_advanced(company, criterion)
 
-def match_certification(company, criterion):
-    """Évalue les certifications de l'entreprise"""
-    if not company.get('certifications') or len(company['certifications']) == 0:
+def match_certification_advanced(company, criterion):
+    """Matching avancé des certifications"""
+    if not company.get('certifications'):
         return 0
     
     criterion_name = criterion['name'].lower()
     criterion_desc = criterion.get('description', '').lower()
-    certifications = [cert.lower() for cert in company['certifications']]
+    company_certs = [cert.lower() for cert in company['certifications']]
     
-    # Vérifier si MASE est spécifiquement requis
-    if 'mase' in criterion_name or 'mase' in criterion_desc:
-        if any('mase' in cert for cert in certifications):
-            return 100
-        else:
-            return 0
+    # Scores par certification
+    cert_scores = {
+        'mase': 100 if any('mase' in cert for cert in company_certs) else 0,
+        'iso 9001': 90 if any('iso 9001' in cert or 'iso9001' in cert for cert in company_certs) else 0,
+        'iso 14001': 85 if any('iso 14001' in cert or 'iso14001' in cert for cert in company_certs) else 0,
+        'qualibat': 80 if any('qualibat' in cert for cert in company_certs) else 0,
+        'cefri': 95 if any('cefri' in cert for cert in company_certs) else 0
+    }
     
-    # Vérifier ISO 9001
-    if 'iso 9001' in criterion_desc or 'qualité' in criterion_desc:
-        if any('iso 9001' in cert or 'iso9001' in cert for cert in certifications):
-            return 100
-        else:
-            return 0
+    # Vérifier la certification spécifique demandée
+    for cert_type, score in cert_scores.items():
+        if cert_type in criterion_name or cert_type in criterion_desc:
+            return score
     
-    # Vérifier ISO 14001
-    if 'iso 14001' in criterion_desc or 'environnement' in criterion_desc:
-        if any('iso 14001' in cert or 'iso14001' in cert for cert in certifications):
-            return 100
-        else:
-            return 0
-    
-    # Vérifier QUALIBAT
-    if 'qualibat' in criterion_desc:
-        if any('qualibat' in cert for cert in certifications):
-            return 100
-        else:
-            return 0
-    
-    # Si aucune certification spécifique n'est mentionnée, considérer que toute certification est bonne
-    if certifications:
-        return min(100, len(certifications) * 25)  # Plus de certifications = meilleur score
+    # Score générique si l'entreprise a des certifications
+    if company_certs:
+        return min(85, len(company_certs) * 25)
     
     return 0
 
-def match_experience(company, criterion):
-    """Évalue l'expérience de l'entreprise"""
-    if not company.get('experience') or company['experience'] == 'Non spécifié':
-        return 50  # Score neutre si pas d'info
+def match_experience_advanced(company, criterion):
+    """Matching avancé de l'expérience"""
+    experience_score = 0
     
-    experience = company['experience'].lower()
-    criterion_desc = criterion.get('description', '').lower()
+    # Analyser l'expérience textuelle
+    experience_text = company.get('experience', '').lower()
+    if experience_text and experience_text != 'non spécifié':
+        if len(experience_text) > 50:
+            experience_score += 40
+        elif len(experience_text) > 20:
+            experience_score += 20
     
-    # Vérifier si un nombre minimum de projets est mentionné
-    min_projects_match = re.search(r'minimum\s+(\d+)\s+projets?', criterion_desc)
-    if min_projects_match:
-        min_projects = int(min_projects_match.group(1))
+    # Analyser les lots/marchés historiques
+    lots_marches = company.get('lots_marches', [])
+    if lots_marches:
+        experience_score += min(40, len(lots_marches) * 10)
         
-        # Chercher le nombre de projets dans l'expérience
-        company_projects_match = re.search(r'(\d+)\s+projets?', experience)
-        if company_projects_match:
-            company_projects = int(company_projects_match.group(1))
-            if company_projects >= min_projects:
-                return 100
-            else:
-                # Score proportionnel
-                return min(100, round((company_projects / min_projects) * 100))
+        # Bonus pour projets similaires
+        criterion_terms = extract_technical_terms(criterion.get('description', ''))
+        for lot in lots_marches:
+            lot_desc = lot.get('description', '').lower()
+            similarity = calculate_text_similarity(criterion_terms, lot_desc)
+            if similarity > 0.3:
+                experience_score += 20 * similarity
     
-    # Recherche de mots-clés d'expérience
-    exp_keywords = ['projets similaires', 'expérience similaire', 'réalisations similaires', 'références']
-    if any(keyword in experience for keyword in exp_keywords):
-        return 100
+    # Analyser le domaine d'activité
+    domain = company.get('domain', '')
+    if domain and domain != 'Autre':
+        experience_score += 20
     
-    # Si on ne peut pas déterminer précisément mais qu'il y a de l'expérience
-    if len(experience) > 20:  # Si description substantielle
-        return 80
-    elif 'expérience' in experience or 'projet' in experience or 'réalisation' in experience:
-        return 70
-    
-    return 50
+    return min(100, int(experience_score))
 
-def match_zone(company, criterion):
-    """Évalue la zone d'intervention de l'entreprise"""
-    if not company.get('location') or company['location'] == 'Non spécifié':
-        return 50  # Score neutre si pas d'info
+def match_geographic_advanced(company, criterion):
+    """Matching avancé géographique"""
+    company_location = company.get('location', '').lower()
     
-    location = company['location'].lower()
+    if not company_location or company_location == 'non spécifié':
+        return 30  # Score neutre
+    
     criterion_desc = criterion.get('description', '').lower()
+    criterion_name = criterion['name'].lower()
     
-    # Vérifier les départements sélectionnés
-    if 'selectedDepartments' in criterion and criterion['selectedDepartments']:
-        for dept in criterion['selectedDepartments']:
-            dept_lower = dept.lower()
-            
-            # Extraire le code du département
-            dept_code_match = re.search(r'(\d+)', dept_lower)
-            if dept_code_match and dept_code_match.group(1) in location:
-                return 100
-            
-            # Vérifier le nom du département
-            dept_name = dept_lower.split('-')[-1].strip() if '-' in dept_lower else dept_lower
-            if dept_name in location:
-                return 100
-        
-        return 0  # Aucun département sélectionné ne correspond
-    
-    # Vérifier les régions
-    regions = {
+    # Extraire les zones mentionnées dans le critère
+    regions_france = {
         'ile-de-france': ['paris', 'idf', 'île-de-france', 'ile de france', '75', '77', '78', '91', '92', '93', '94', '95'],
         'nord': ['nord', 'hauts-de-france', 'lille', '59', '62', '02', '60', '80'],
-        'est': ['est', 'grand est', 'strasbourg', 'alsace', 'lorraine', '67', '68', '54', '55', '57', '88', '08', '10', '51', '52'],
+        'est': ['est', 'grand est', 'strasbourg', 'metz', 'reims', '67', '68', '54', '55', '57', '88', '08', '10', '51', '52'],
         'ouest': ['ouest', 'bretagne', 'pays de la loire', 'normandie', '22', '29', '35', '56', '44', '49', '53', '72', '85', '14', '50', '61'],
-        'sud': ['sud', 'paca', 'occitanie', 'marseille', 'toulouse', '13', '83', '84', '04', '05', '06', '31', '32', '65', '81', '82', '09', '11', '30', '34', '48', '66']
+        'sud': ['sud', 'paca', 'occitanie', 'marseille', 'toulouse', 'nice', '13', '83', '84', '04', '05', '06', '31', '65', '81', '82'],
+        'centre': ['centre', 'orleans', 'tours', 'bourges', '18', '28', '36', '37', '41', '45'],
+        'chooz': ['chooz', 'ardennes', '08', 'charleville']  # Spécifique au projet
     }
     
-    for region, keywords in regions.items():
-        if any(keyword in criterion_desc for keyword in [region]):
-            if any(keyword in location for keyword in keywords):
-                return 100
-    
-    # National
-    if 'national' in location or 'france entière' in location or 'france' in location:
-        return 100
-    
-    # Score partiel si on ne peut pas déterminer précisément
-    return 70
-
-def match_capacity(company, criterion):
-    """Évalue la capacité ou taille de l'entreprise"""
-    criterion_desc = criterion.get('description', '').lower()
-    
-    # Vérifier le nombre d'employés
-    if company.get('employees') and company['employees'] != 'Non spécifié':
-        try:
-            # Extraire le nombre d'employés
-            employees_str = str(company['employees'])
-            employees_match = re.search(r'(\d+)', employees_str)
-            if employees_match:
-                employees = int(employees_match.group(1))
-                
-                # Chercher le minimum requis dans le critère
-                min_employees_match = re.search(r'minimum\s+(\d+)\s+(?:salariés|employés|personnes)', criterion_desc)
-                if min_employees_match:
-                    min_employees = int(min_employees_match.group(1))
-                    if employees >= min_employees:
-                        return 100
-                    else:
-                        # Score proportionnel
-                        return min(100, round((employees / min_employees) * 100))
-                
-                # Sinon, score basé sur la taille
-                if employees > 100:
-                    return 100
-                elif employees > 50:
-                    return 90
-                elif employees > 25:
-                    return 80
-                elif employees > 10:
-                    return 70
-                elif employees > 5:
-                    return 60
-                else:
-                    return 50
-        except (ValueError, TypeError):
-            pass
-    
-    # Vérifier le chiffre d'affaires
-    if company.get('ca') and company['ca'] != 'Non spécifié':
-        ca_str = str(company['ca']).lower()
+    # Vérifier la correspondance géographique
+    for region, keywords in regions_france.items():
+        region_mentioned = region in criterion_desc or region in criterion_name
+        location_matches = any(keyword in company_location for keyword in keywords)
         
-        try:
-            # Extraire le montant du CA
-            amount_match = re.search(r'(\d+(?:[\.,]\d+)?)\s*([km])?€?', ca_str)
-            if amount_match:
-                amount = float(amount_match.group(1).replace(',', '.'))
-                unit = amount_match.group(2)
-                
-                # Convertir en euros
-                if unit == 'k':
-                    amount *= 1000
-                elif unit == 'm':
-                    amount *= 1000000
-                
-                # Score basé sur le CA
-                if amount > 10000000:  # > 10M€
-                    return 100
-                elif amount > 5000000:  # > 5M€
-                    return 90
-                elif amount > 1000000:  # > 1M€
-                    return 80
-                elif amount > 500000:   # > 500k€
-                    return 70
-                elif amount > 100000:   # > 100k€
-                    return 60
-                else:
-                    return 50
-        except (ValueError, TypeError):
-            pass
+        if region_mentioned and location_matches:
+            return 100
+        elif location_matches and any(keyword in criterion_desc for keyword in keywords):
+            return 90
     
-    # Score par défaut si on ne peut pas évaluer
-    return 60
+    # National ou multi-régional
+    if any(term in company_location for term in ['national', 'france', 'multi']):
+        return 85
+    
+    # Score basé sur la proximité textuelle
+    similarity = calculate_text_similarity(criterion_desc, company_location)
+    return min(80, int(similarity * 100))
 
-def match_domain(company, criterion):
-    """Évalue le domaine d'activité de l'entreprise"""
-    if not company.get('domain') or company['domain'] == 'Non spécifié':
-        return 50  # Score neutre si pas de domaine spécifié
+def match_capacity_advanced(company, criterion):
+    """Matching avancé de la capacité"""
+    capacity_score = 0
     
-    company_domain = company['domain'].lower()
-    criterion_name = criterion['name'].lower()
+    # Analyser le chiffre d'affaires
+    ca = company.get('ca', 'Non spécifié')
+    if ca != 'Non spécifié':
+        ca_score = analyze_ca_for_capacity(ca)
+        capacity_score += ca_score * 0.6  # 60% du score
+    
+    # Analyser les effectifs
+    employees = company.get('employees', 'Non spécifié')
+    if employees != 'Non spécifié':
+        emp_score = analyze_employees_for_capacity(employees)
+        capacity_score += emp_score * 0.4  # 40% du score
+    
+    # Bonus pour historique de projets
+    lots_marches = company.get('lots_marches', [])
+    if len(lots_marches) > 0:
+        capacity_score += min(20, len(lots_marches) * 5)
+    
+    return min(100, int(capacity_score))
+
+def match_domain_advanced(company, criterion):
+    """Matching avancé du domaine d'activité"""
+    company_domain = company.get('domain', 'Autre').lower()
     criterion_desc = criterion.get('description', '').lower()
+    criterion_name = criterion['name'].lower()
     
     # Correspondance exacte du domaine
-    domain_keywords = {
-        'électricité': ['électricité', 'electrique', 'électrique', 'elec'],
-        'mécanique': ['mécanique', 'mecanique', 'méca', 'meca'],
-        'hydraulique': ['hydraulique', 'plomberie', 'eau', 'fluide'],
-        'bâtiment': ['bâtiment', 'batiment', 'construction', 'gros œuvre', 'gros oeuvre'],
-        'maintenance': ['maintenance', 'entretien', 'réparation', 'reparation']
+    domain_mapping = {
+        'électricité': ['electr', 'élec', 'energie', 'énergie', 'installation'],
+        'mécanique': ['mecani', 'mécan', 'usinage', 'machine', 'moteur'],
+        'hydraulique': ['hydraul', 'eau', 'fluide', 'tuyau', 'échangeur'],
+        'bâtiment': ['batiment', 'bâtiment', 'construction', 'btp'],
+        'maintenance': ['maintenance', 'entretien', 'service', 'réparation']
     }
     
-    # Vérifier si le domaine de l'entreprise correspond aux mots-clés du critère
-    for domain, keywords in domain_keywords.items():
-        if domain in company_domain:
-            # Vérifier si le critère mentionne ce domaine
-            if any(keyword in criterion_name or keyword in criterion_desc for keyword in keywords):
-                return 100
-    
-    # Correspondance partielle
-    criterion_text = criterion_name + ' ' + criterion_desc
-    if company_domain in criterion_text:
-        return 90
-    
-    # Domaines compatibles
-    compatible_domains = {
-        'électricité': ['maintenance', 'bâtiment'],
-        'mécanique': ['maintenance', 'hydraulique'],
-        'hydraulique': ['mécanique', 'maintenance'],
-        'bâtiment': ['électricité', 'hydraulique'],
-        'maintenance': ['électricité', 'mécanique', 'hydraulique']
+    # Score de base selon le domaine
+    base_scores = {
+        'électricité': 85,
+        'mécanique': 80,
+        'hydraulique': 90,  # Bonus pour le projet échangeurs
+        'bâtiment': 75,
+        'maintenance': 95,  # Très pertinent pour maintenance
+        'autre': 40
     }
     
-    if company_domain in compatible_domains:
-        for compatible in compatible_domains[company_domain]:
-            if compatible in criterion_text:
-                return 70
+    base_score = base_scores.get(company_domain, 40)
     
-    return 50
+    # Vérifier la correspondance avec le critère
+    if company_domain in domain_mapping:
+        domain_keywords = domain_mapping[company_domain]
+        for keyword in domain_keywords:
+            if keyword in criterion_desc or keyword in criterion_name:
+                return min(100, base_score + 15)
+    
+    # Analyser les lots pour correspondance technique
+    lots_marches = company.get('lots_marches', [])
+    if lots_marches:
+        for lot in lots_marches:
+            lot_desc = lot.get('description', '').lower()
+            similarity = calculate_text_similarity(criterion_desc, lot_desc)
+            if similarity > 0.4:
+                return min(100, base_score + int(similarity * 30))
+    
+    return base_score
 
-def match_generic(company, criterion):
-    """Matching générique pour les autres types de critères"""
-    criterion_name = criterion['name'].lower()
-    criterion_desc = criterion.get('description', '').lower()
+def match_technical_advanced(company, criterion):
+    """Matching avancé des compétences techniques"""
+    technical_score = 0
     
-    # Convertir les données de l'entreprise en texte pour chercher des correspondances
-    company_str = json.dumps(company, ensure_ascii=False).lower()
+    # Analyser le domaine technique
+    domain_score = match_domain_advanced(company, criterion)
+    technical_score += domain_score * 0.5
     
-    # Extraire les termes significatifs du critère
-    terms = set()
-    all_words = (criterion_name + ' ' + criterion_desc).split()
+    # Analyser l'expérience technique
+    experience_score = match_experience_advanced(company, criterion)
+    technical_score += experience_score * 0.3
     
-    # Filtrer les mots significatifs (plus de 3 caractères)
-    for word in all_words:
-        word = word.strip(',.;:!?()[]{}\'\"').lower()
-        if len(word) > 3 and word not in ['pour', 'avec', 'dans', 'les', 'des', 'qui', 'est', 'sont', 'ont', 'que', 'une', 'cette', 'ces']:
-            terms.add(word)
+    # Analyser les certifications techniques
+    cert_score = match_certification_advanced(company, criterion)
+    technical_score += cert_score * 0.2
     
-    if not terms:
-        return 60  # Si pas de termes significatifs
+    return min(100, int(technical_score))
+
+def match_generic_advanced(company, criterion):
+    """Matching générique avec analyse contextuelle"""
+    criterion_text = (criterion['name'] + ' ' + criterion.get('description', '')).lower()
     
-    # Compter combien de termes sont trouvés dans les données de l'entreprise
-    matches = sum(1 for term in terms if term in company_str)
+    # Construire le profil textuel de l'entreprise
+    company_profile = build_company_text_profile(company)
     
-    # Calculer le score
-    score = round((matches / len(terms)) * 100) if matches > 0 else 0
+    # Calculer la similarité
+    similarity = calculate_text_similarity(criterion_text, company_profile)
     
-    # Score minimum de 40 si au moins un terme correspond
-    return max(40, score) if matches > 0 else 0
+    # Score de base selon la qualité des données
+    data_quality_score = assess_company_data_quality(company)
+    
+    # Combiner les scores
+    final_score = (similarity * 70) + (data_quality_score * 30)
+    
+    return min(100, int(final_score))
+
+def calculate_historical_bonus(company):
+    """Calcule un bonus basé sur l'historique de l'entreprise"""
+    bonus = 0
+    
+    # Bonus pour les lots/marchés
+    lots_marches = company.get('lots_marches', [])
+    if lots_marches:
+        bonus += min(15, len(lots_marches) * 3)
+    
+    # Bonus pour l'expérience documentée
+    experience = company.get('experience', '')
+    if experience and len(experience) > 50:
+        bonus += 10
+    
+    # Bonus pour les certifications
+    certifications = company.get('certifications', [])
+    if certifications:
+        bonus += min(10, len(certifications) * 3)
+    
+    # Bonus pour domaine spécialisé
+    domain = company.get('domain', 'Autre')
+    if domain != 'Autre':
+        bonus += 5
+    
+    return min(20, bonus)
+
+def extract_technical_terms(text):
+    """Extrait les termes techniques d'un texte"""
+    if not text:
+        return ""
+    
+    technical_words = []
+    words = re.findall(r'\b\w+\b', text.lower())
+    
+    for word in words:
+        if len(word) > 4 and word not in ['pour', 'avec', 'dans', 'cette', 'sont']:
+            technical_words.append(word)
+    
+    return ' '.join(technical_words)
+
+def calculate_text_similarity(text1, text2):
+    """Calcule la similarité entre deux textes"""
+    if not text1 or not text2:
+        return 0
+    
+    return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
+
+def analyze_ca_for_capacity(ca_str):
+    """Analyse le chiffre d'affaires pour évaluer la capacité"""
+    if not ca_str or ca_str == 'Non spécifié':
+        return 50
+    
+    # Extraire le montant numérique
+    ca_lower = ca_str.lower()
+    
+    try:
+        if 'm€' in ca_lower or 'millions' in ca_lower:
+            # Millions d'euros
+            amount_match = re.search(r'(\d+(?:[.,]\d+)?)', ca_str)
+            if amount_match:
+                amount = float(amount_match.group(1).replace(',', '.'))
+                if amount >= 10:
+                    return 100
+                elif amount >= 5:
+                    return 90
+                elif amount >= 2:
+                    return 80
+                elif amount >= 1:
+                    return 70
+                else:
+                    return 60
+        
+        elif 'k€' in ca_lower or 'mille' in ca_lower:
+            # Milliers d'euros
+            amount_match = re.search(r'(\d+)', ca_str)
+            if amount_match:
+                amount = int(amount_match.group(1))
+                if amount >= 2000:
+                    return 85
+                elif amount >= 1000:
+                    return 75
+                elif amount >= 500:
+                    return 65
+                else:
+                    return 55
+    
+    except (ValueError, AttributeError):
+        pass
+    
+    return 60  # Score neutre si analyse impossible
+
+def analyze_employees_for_capacity(emp_str):
+    """Analyse les effectifs pour évaluer la capacité"""
+    if not emp_str or emp_str == 'Non spécifié':
+        return 50
+    
+    try:
+        # Extraire le nombre d'employés
+        emp_match = re.search(r'(\d+)', str(emp_str))
+        if emp_match:
+            emp_count = int(emp_match.group(1))
+            
+            if emp_count >= 100:
+                return 100
+            elif emp_count >= 50:
+                return 90
+            elif emp_count >= 25:
+                return 80
+            elif emp_count >= 10:
+                return 70
+            elif emp_count >= 5:
+                return 60
+            else:
+                return 50
+    
+    except (ValueError, AttributeError):
+        pass
+    
+    return 55  # Score neutre
+
+def build_company_text_profile(company):
+    """Construit un profil textuel de l'entreprise"""
+    profile_parts = []
+    
+    # Nom et domaine
+    profile_parts.append(company.get('name', ''))
+    profile_parts.append(company.get('domain', ''))
+    
+    # Localisation
+    profile_parts.append(company.get('location', ''))
+    
+    # Expérience
+    experience = company.get('experience', '')
+    if experience != 'Non spécifié':
+        profile_parts.append(experience)
+    
+    # Lots et marchés
+    lots_marches = company.get('lots_marches', [])
+    for lot in lots_marches:
+        profile_parts.append(lot.get('description', ''))
+    
+    # Certifications
+    certifications = company.get('certifications', [])
+    profile_parts.extend(certifications)
+    
+    return ' '.join(profile_parts).lower()
+
+def assess_company_data_quality(company):
+    """Évalue la qualité des données de l'entreprise"""
+    score = 0
+    
+    # Données de base
+    if company.get('name'):
+        score += 20
+    if company.get('location') and company['location'] != 'Non spécifié':
+        score += 15
+    if company.get('domain') and company['domain'] != 'Autre':
+        score += 15
+    
+    # Données détaillées
+    if company.get('certifications'):
+        score += 15
+    if company.get('experience') and company['experience'] != 'Non spécifié':
+        score += 15
+    if company.get('lots_marches'):
+        score += 10
+    if company.get('contact'):
+        score += 10
+    
+    return score
