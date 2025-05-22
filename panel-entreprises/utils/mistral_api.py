@@ -25,23 +25,32 @@ def analyze_document(document_text, api_key):
     {document_text}
     ```
     
-    Veuillez extraire et fournir les informations suivantes au format JSON :
-    1. Mots-clés : Identifiez 5 à 8 mots ou phrases clés qui caractérisent le projet.
-    2. Critères de sélection : Proposez 4 à 6 critères pertinents pour sélectionner des entreprises (expérience, certifications requises, zone d'intervention, capacité de production, etc.)
-    3. Critères d'attribution : Suggérez une répartition en pourcentage des critères d'attribution (qualité technique, coût, délais, sécurité, etc.). Le total doit être égal à 100%.
+    Veuillez extraire et fournir les informations suivantes au format JSON strictement respecté :
     
-    Pour chaque critère de sélection, incluez:
-    - Un identifiant unique (id)
-    - Un nom clair (name)
-    - Une description détaillée (description)
-    - Un statut de sélection par défaut (selected: true)
+    {{
+        "keywords": ["mot-clé1", "mot-clé2", "mot-clé3", "mot-clé4", "mot-clé5"],
+        "selectionCriteria": [
+            {{
+                "id": 1,
+                "name": "Nom du critère",
+                "description": "Description détaillée du critère",
+                "selected": true
+            }}
+        ],
+        "attributionCriteria": [
+            {{
+                "id": 1,
+                "name": "Nom du critère",
+                "weight": 40
+            }}
+        ]
+    }}
     
-    Pour chaque critère d'attribution, incluez:
-    - Un identifiant unique (id)
-    - Un nom clair (name)
-    - Une pondération en pourcentage (weight)
-    
-    Répondez uniquement avec un objet JSON valide.
+    Règles importantes :
+    1. Identifiez 5 à 8 mots-clés caractéristiques du projet
+    2. Proposez 4 à 6 critères de sélection pertinents (expérience, certifications, zone, capacité)
+    3. Suggérez 3 à 5 critères d'attribution dont le total des weights fait exactement 100
+    4. Répondez UNIQUEMENT avec le JSON, sans texte avant ou après
     """
     
     headers = {
@@ -59,78 +68,202 @@ def analyze_document(document_text, api_key):
     
     for attempt in range(max_retries):
         try:
+            print(f"Tentative {attempt + 1} d'analyse du document...")
             response = requests.post(url, headers=headers, json=data, timeout=60)
             
             if response.status_code == 200:
                 result = response.json()
                 content = result.get("answer", "")
+                print(f"Réponse brute de l'API: {content[:200]}...")
                 
                 try:
-                    # Extraire le JSON de la réponse
-                    json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(1)
-                    else:
-                        # Chercher directement un objet JSON dans la réponse
-                        start = content.find('{')
-                        end = content.rfind('}') + 1
-                        if start >= 0 and end > start:
-                            json_str = content[start:end]
-                        else:
-                            raise ValueError("Format JSON non détecté dans la réponse")
-                    
-                    result_data = json.loads(json_str)
+                    # Nettoyer la réponse pour extraire le JSON
+                    cleaned_content = clean_json_response(content)
+                    result_data = json.loads(cleaned_content)
                     
                     # Vérifier et ajouter les champs manquants
-                    if "selectionCriteria" in result_data:
-                        for i, criterion in enumerate(result_data["selectionCriteria"]):
-                            if "id" not in criterion:
-                                criterion["id"] = i + 1
-                            if "selected" not in criterion:
-                                criterion["selected"] = True
+                    result_data = validate_and_fix_response(result_data)
                     
-                    if "attributionCriteria" in result_data:
-                        for i, criterion in enumerate(result_data["attributionCriteria"]):
-                            if "id" not in criterion:
-                                criterion["id"] = i + 1
-                    
+                    print("Analyse réussie !")
                     return result_data
+                    
                 except (ValueError, json.JSONDecodeError) as e:
-                    print(f"Erreur de décodage JSON: {e}")
+                    print(f"Erreur de décodage JSON (tentative {attempt + 1}): {e}")
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay * (2 ** attempt))
                         continue
             elif response.status_code == 401:
-                print(f"Erreur d'authentification API Prisme AI: {response.status_code}, {response.text}")
+                print(f"Erreur d'authentification API Prisme AI: {response.status_code}")
                 raise Exception(f"Erreur d'authentification: Vérifiez votre clé API")
             else:
                 print(f"Erreur API Prisme AI: {response.status_code}, {response.text}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay * (2 ** attempt))
                     continue
-                raise Exception(f"API error: {response.status_code}")
                 
         except requests.exceptions.RequestException as e:
-            print(f"Erreur de requête: {e}")
+            print(f"Erreur de requête (tentative {attempt + 1}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (2 ** attempt))
                 continue
             raise
     
-    # En cas d'échec après plusieurs tentatives, retourner un résultat par défaut
+    # En cas d'échec après plusieurs tentatives, retourner un résultat par défaut basé sur le document
+    print("Utilisation du fallback - analyse par défaut")
+    return create_default_analysis(document_text)
+
+def clean_json_response(content):
+    """
+    Nettoie la réponse pour extraire le JSON valide
+    """
+    # Rechercher un bloc JSON délimité par ```json
+    json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+    if json_match:
+        return json_match.group(1).strip()
+    
+    # Rechercher un bloc JSON délimité par ```
+    json_match = re.search(r'```\s*(.*?)\s*```', content, re.DOTALL)
+    if json_match:
+        return json_match.group(1).strip()
+    
+    # Chercher directement un objet JSON dans la réponse
+    start = content.find('{')
+    end = content.rfind('}') + 1
+    if start >= 0 and end > start:
+        return content[start:end]
+    
+    # Si rien n'est trouvé, essayer de nettoyer le contenu
+    # Supprimer les préfixes et suffixes courants
+    content = re.sub(r'^.*?(?=\{)', '', content, flags=re.DOTALL)
+    content = re.sub(r'\}(?!.*\}).*$', '}', content, flags=re.DOTALL)
+    
+    return content.strip()
+
+def validate_and_fix_response(result_data):
+    """
+    Valide et corrige la structure de la réponse
+    """
+    # Vérifier la structure de base
+    if not isinstance(result_data, dict):
+        raise ValueError("La réponse n'est pas un objet JSON valide")
+    
+    # Assurer les champs obligatoires
+    if "keywords" not in result_data:
+        result_data["keywords"] = ["Projet EDF", "Travaux", "Maintenance"]
+    
+    if "selectionCriteria" not in result_data:
+        result_data["selectionCriteria"] = []
+    
+    if "attributionCriteria" not in result_data:
+        result_data["attributionCriteria"] = []
+    
+    # Valider et corriger selectionCriteria
+    for i, criterion in enumerate(result_data["selectionCriteria"]):
+        if "id" not in criterion:
+            criterion["id"] = i + 1
+        if "selected" not in criterion:
+            criterion["selected"] = True
+        if "name" not in criterion:
+            criterion["name"] = f"Critère {i + 1}"
+        if "description" not in criterion:
+            criterion["description"] = "Description à compléter"
+    
+    # Valider et corriger attributionCriteria
+    total_weight = 0
+    for i, criterion in enumerate(result_data["attributionCriteria"]):
+        if "id" not in criterion:
+            criterion["id"] = i + 1
+        if "name" not in criterion:
+            criterion["name"] = f"Critère {i + 1}"
+        if "weight" not in criterion:
+            criterion["weight"] = 25
+        total_weight += criterion["weight"]
+    
+    # Ajuster les poids pour qu'ils totalisent 100
+    if total_weight != 100 and len(result_data["attributionCriteria"]) > 0:
+        adjustment_factor = 100 / total_weight
+        for criterion in result_data["attributionCriteria"]:
+            criterion["weight"] = round(criterion["weight"] * adjustment_factor)
+        
+        # Ajustement final pour s'assurer que le total est exactement 100
+        current_total = sum(c["weight"] for c in result_data["attributionCriteria"])
+        if current_total != 100:
+            result_data["attributionCriteria"][0]["weight"] += (100 - current_total)
+    
+    return result_data
+
+def create_default_analysis(document_text):
+    """
+    Crée une analyse par défaut basée sur des mots-clés simples du document
+    """
+    # Extraire des mots-clés simples du document
+    keywords = []
+    common_keywords = [
+        "maintenance", "réparation", "installation", "travaux", "projet", 
+        "équipement", "sécurité", "électrique", "mécanique", "hydraulique",
+        "tuyauterie", "vannes", "échangeur", "plaques", "nettoyage"
+    ]
+    
+    text_lower = document_text.lower()
+    for keyword in common_keywords:
+        if keyword in text_lower:
+            keywords.append(keyword.title())
+    
+    if not keywords:
+        keywords = ["Projet EDF", "Travaux", "Maintenance", "Technique"]
+    
+    # Limiter à 6 mots-clés maximum
+    keywords = keywords[:6]
+    
     return {
-        "keywords": ["Projet EDF", "Travaux", "Maintenance", "Sous-traitance", "Sécurité"],
+        "keywords": keywords,
         "selectionCriteria": [
-            {"id": 1, "name": "Certification MASE", "description": "L'entreprise doit posséder la certification MASE", "selected": True},
-            {"id": 2, "name": "Expérience similaire", "description": "Au moins 3 projets similaires réalisés", "selected": True},
-            {"id": 3, "name": "Zone d'intervention", "description": "Capacité d'intervention dans la région concernée", "selected": True},
-            {"id": 4, "name": "Capacité technique", "description": "Ressources suffisantes pour réaliser le projet", "selected": True}
+            {
+                "id": 1,
+                "name": "Certification MASE",
+                "description": "L'entreprise doit posséder la certification MASE obligatoire",
+                "selected": True
+            },
+            {
+                "id": 2,
+                "name": "Expérience similaire",
+                "description": "Au moins 3 projets similaires réalisés dans les 5 dernières années",
+                "selected": True
+            },
+            {
+                "id": 3,
+                "name": "Zone d'intervention",
+                "description": "Capacité d'intervention dans la région du projet",
+                "selected": True
+            },
+            {
+                "id": 4,
+                "name": "Capacité technique",
+                "description": "Ressources humaines et matérielles suffisantes",
+                "selected": True
+            }
         ],
         "attributionCriteria": [
-            {"id": 1, "name": "Valeur technique", "weight": 40},
-            {"id": 2, "name": "Prix", "weight": 30},
-            {"id": 3, "name": "Délai d'exécution", "weight": 20},
-            {"id": 4, "name": "Performance sécurité", "weight": 10}
+            {
+                "id": 1,
+                "name": "Valeur technique",
+                "weight": 40
+            },
+            {
+                "id": 2,
+                "name": "Prix",
+                "weight": 30
+            },
+            {
+                "id": 3,
+                "name": "Délai d'exécution",
+                "weight": 20
+            },
+            {
+                "id": 4,
+                "name": "Performance sécurité",
+                "weight": 10
+            }
         ]
     }
 
