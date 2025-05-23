@@ -1,545 +1,683 @@
+"""
+mistral_api.py - Enhanced Mistral API integration for EDF Panel Entreprises
+"""
+
 import requests
 import json
 import time
 import re
+import logging
+from datetime import datetime
 
-def analyze_document(document_text, api_key):
-    """
-    Analyse un document avec l'API Prisme AI - Version robuste avec fallback intelligent
-    """
-    
-    print(f"=== ANALYSE DOCUMENT MISTRAL API ===")
-    print(f"Longueur du texte: {len(document_text)} caractères")
-    
-    # Si le document est trop court, utiliser l'analyse basée sur le contenu
-    if len(document_text.strip()) < 50:
-        print("Document trop court, utilisation de l'analyse par contenu")
-        return create_content_based_analysis(document_text)
-    
-    # Créer un prompt optimisé pour Mistral
-    prompt = create_analysis_prompt(document_text)
-    
-    # Essayer d'abord avec l'API
-    try:
-        api_result = call_mistral_api(prompt, api_key)
-        if api_result:
-            print("Analyse réussie via API Mistral")
-            return api_result
-    except Exception as e:
-        print(f"Erreur API Mistral: {e}")
-    
-    # Fallback: analyse basée sur le contenu du document
-    print("Utilisation du fallback - analyse par contenu")
-    return create_content_based_analysis(document_text)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def create_analysis_prompt(document_text):
-    """Crée un prompt optimisé pour l'analyse"""
-    # Limiter la taille du texte pour éviter les timeouts
-    text_sample = document_text[:3000] if len(document_text) > 3000 else document_text
+class MistralAPI:
+    """Wrapper for Mistral API with enhanced error handling and retry logic"""
     
-    return f"""Analysez ce cahier des charges EDF et extrayez UNIQUEMENT le JSON suivant (sans texte supplémentaire):
-
-DOCUMENT:
-{text_sample}
-
-Répondez EXACTEMENT avec ce format JSON:
-{{
-    "keywords": ["mot1", "mot2", "mot3", "mot4", "mot5"],
-    "selectionCriteria": [
-        {{"id": 1, "name": "Certification MASE", "description": "Certification MASE obligatoire", "selected": true}},
-        {{"id": 2, "name": "Expérience technique", "description": "Expérience sur projets similaires", "selected": true}},
-        {{"id": 3, "name": "Zone d'intervention", "description": "Capacité d'intervention géographique", "selected": true}}
-    ],
-    "attributionCriteria": [
-        {{"id": 1, "name": "Prix", "weight": 40}},
-        {{"id": 2, "name": "Technique", "weight": 35}},
-        {{"id": 3, "name": "Délai", "weight": 25}}
-    ]
-}}"""
-
-def call_mistral_api(prompt, api_key, max_retries=2):
-    """Appelle l'API Mistral avec gestion d'erreurs robuste"""
+    def __init__(self, api_key, agent_id):
+        self.api_key = api_key
+        self.agent_id = agent_id
+        self.api_url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
+        self.max_retries = 3
+        self.retry_delay = 2  # seconds
     
-    url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
-    headers = {
-        "Content-Type": "application/json",
-        "knowledge-project-apikey": api_key
-    }
-    
-    data = {
-        "text": prompt,
-        "projectId": "67f785d59e82260f684a217a"
-    }
-    
-    for attempt in range(max_retries):
-        try:
-            print(f"Tentative API {attempt + 1}/{max_retries}")
+    def analyze_document(self, document_text):
+        """
+        Analyze a document to extract criteria and keywords
+        
+        Args:
+            document_text: Text content of the document to analyze
             
-            response = requests.post(url, headers=headers, json=data, timeout=45)
+        Returns:
+            Dictionary with keywords, selection criteria, and attribution criteria
+        """
+        logger.info("=== ANALYZING DOCUMENT WITH MISTRAL API ===")
+        logger.info(f"Document length: {len(document_text)} characters")
+        
+        # For very short texts, use fallback
+        if len(document_text.strip()) < 100:
+            logger.warning("Document too short, using fallback analysis")
+            return self._create_fallback_analysis()
+        
+        # Create analysis prompt
+        prompt = self._create_analysis_prompt(document_text)
+        
+        # Call API with retries
+        result = self._call_api(prompt)
+        
+        if result:
+            try:
+                # Parse and validate the response
+                parsed_result = self._parse_analysis_response(result)
+                if parsed_result:
+                    logger.info("Analysis successful")
+                    logger.info(f"Keywords: {len(parsed_result.get('keywords', []))} extracted")
+                    logger.info(f"Selection criteria: {len(parsed_result.get('selectionCriteria', []))} extracted")
+                    logger.info(f"Attribution criteria: {len(parsed_result.get('attributionCriteria', []))} extracted")
+                    return parsed_result
+            except Exception as e:
+                logger.error(f"Error parsing analysis response: {e}")
+        
+        # If API call fails or returns invalid response, use fallback
+        logger.warning("Using fallback analysis")
+        return self._create_fallback_analysis(document_text)
+    
+    def generate_document(self, template_type, project_data, selected_companies=None):
+        """
+        Generate a document based on template type and project data
+        
+        Args:
+            template_type: Type of document to generate
+            project_data: Dictionary with project information
+            selected_companies: List of selected companies
+            
+        Returns:
+            Generated document content
+        """
+        logger.info(f"=== GENERATING DOCUMENT: {template_type} ===")
+        
+        # Create document generation prompt
+        prompt = self._create_document_prompt(template_type, project_data, selected_companies)
+        
+        # Call API with retries
+        result = self._call_api(prompt)
+        
+        if result:
+            # Clean up and format the result
+            document_content = self._format_document_content(result, template_type)
+            
+            if document_content:
+                logger.info(f"Document generated successfully, length: {len(document_content)} characters")
+                return document_content
+        
+        # Fallback if API fails
+        logger.warning("Using fallback document generation")
+        return self._create_fallback_document(template_type, project_data, selected_companies)
+    
+    def _call_api(self, prompt, attempt=1):
+        """Call the Mistral API with retry logic"""
+        try:
+            logger.info(f"API call attempt {attempt}/{self.max_retries}")
+            
+            headers = {
+                "Content-Type": "application/json",
+                "knowledge-project-apikey": self.api_key
+            }
+            
+            data = {
+                "text": prompt,
+                "projectId": self.agent_id
+            }
+            
+            response = requests.post(
+                self.api_url, 
+                headers=headers, 
+                json=data,
+                timeout=60  # Increase timeout for longer documents
+            )
             
             if response.status_code == 200:
                 result = response.json()
-                content = result.get("answer", "")
+                answer = result.get("answer", "")
                 
-                if content and len(content.strip()) > 10:
-                    # Tenter de parser le JSON
-                    try:
-                        cleaned_content = clean_json_response(content)
-                        parsed_result = json.loads(cleaned_content)
-                        validated_result = validate_and_fix_response(parsed_result)
-                        return validated_result
-                    except json.JSONDecodeError as e:
-                        print(f"Erreur JSON: {e}")
-                        print(f"Contenu reçu: {content[:500]}...")
-                        if attempt < max_retries - 1:
-                            time.sleep(2)
-                            continue
+                if answer and len(answer.strip()) > 10:
+                    return answer
                 else:
-                    print(f"Réponse vide ou trop courte: {content}")
+                    logger.warning(f"API returned empty or very short response: {answer[:50]}")
             else:
-                print(f"Erreur HTTP {response.status_code}: {response.text}")
+                logger.error(f"API error: Status {response.status_code}, {response.text[:100]}")
             
-            if attempt < max_retries - 1:
-                time.sleep(3)
-                
-        except requests.exceptions.Timeout:
-            print(f"Timeout sur tentative {attempt + 1}")
-            if attempt < max_retries - 1:
-                time.sleep(2)
+            # Retry if not successful and attempts remain
+            if attempt < self.max_retries:
+                logger.info(f"Retrying in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
+                return self._call_api(prompt, attempt + 1)
+            
+            return None
+            
         except Exception as e:
-            print(f"Erreur requête: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2)
+            logger.error(f"API call error: {e}")
+            
+            # Retry if attempts remain
+            if attempt < self.max_retries:
+                logger.info(f"Retrying in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
+                return self._call_api(prompt, attempt + 1)
+            
+            return None
     
-    return None
-
-def clean_json_response(content):
-    """Nettoie la réponse pour extraire le JSON"""
-    # Patterns pour extraire le JSON
-    patterns = [
-        r'```json\s*(.*?)\s*```',
-        r'```\s*(.*?)\s*```',
-        r'\{.*\}',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            return match.group(1) if 'json' in pattern else match.group(0)
-    
-    # Si rien trouvé, chercher manuellement
-    start = content.find('{')
-    end = content.rfind('}') + 1
-    if start >= 0 and end > start:
-        return content[start:end]
-    
-    return content.strip()
-
-def validate_and_fix_response(result_data):
-    """Valide et corrige la structure de la réponse"""
-    if not isinstance(result_data, dict):
-        raise ValueError("Réponse invalide")
-    
-    # Assurer les champs obligatoires
-    if "keywords" not in result_data or not isinstance(result_data["keywords"], list):
-        result_data["keywords"] = ["EDF", "Projet", "Maintenance", "Intervention"]
-    
-    if "selectionCriteria" not in result_data or not isinstance(result_data["selectionCriteria"], list):
-        result_data["selectionCriteria"] = []
-    
-    if "attributionCriteria" not in result_data or not isinstance(result_data["attributionCriteria"], list):
-        result_data["attributionCriteria"] = []
-    
-    # Valider selectionCriteria
-    for i, criterion in enumerate(result_data["selectionCriteria"]):
-        if not isinstance(criterion, dict):
-            continue
-        if "id" not in criterion:
-            criterion["id"] = i + 1
-        if "selected" not in criterion:
-            criterion["selected"] = True
-        if "name" not in criterion:
-            criterion["name"] = f"Critère {i + 1}"
-        if "description" not in criterion:
-            criterion["description"] = "Description à compléter"
-    
-    # Valider attributionCriteria et ajuster les poids
-    total_weight = 0
-    for i, criterion in enumerate(result_data["attributionCriteria"]):
-        if not isinstance(criterion, dict):
-            continue
-        if "id" not in criterion:
-            criterion["id"] = i + 1
-        if "name" not in criterion:
-            criterion["name"] = f"Critère {i + 1}"
-        if "weight" not in criterion or not isinstance(criterion["weight"], (int, float)):
-            criterion["weight"] = 25
-        total_weight += criterion["weight"]
-    
-    # Ajuster les poids pour totaliser 100
-    if total_weight != 100 and len(result_data["attributionCriteria"]) > 0:
-        if total_weight > 0:
-            factor = 100 / total_weight
-            for criterion in result_data["attributionCriteria"]:
-                criterion["weight"] = round(criterion["weight"] * factor)
+    def _create_analysis_prompt(self, document_text):
+        """Create prompt for document analysis"""
+        # Limit text length to avoid token limits
+        max_chars = 6000
+        text_sample = document_text[:max_chars] if len(document_text) > max_chars else document_text
         
-        # Correction finale
-        current_total = sum(c["weight"] for c in result_data["attributionCriteria"])
-        if current_total != 100 and result_data["attributionCriteria"]:
-            result_data["attributionCriteria"][0]["weight"] += (100 - current_total)
-    
-    return result_data
+        return f"""Analysez ce cahier des charges EDF pour un projet de moins de 400K€ et extrayez UNIQUEMENT les informations suivantes au format JSON.
 
-def create_content_based_analysis(document_text):
-    """
-    Crée une analyse intelligente basée sur le contenu réel du document
-    """
-    print("=== ANALYSE BASÉE SUR LE CONTENU ===")
-    
-    text_lower = document_text.lower()
-    
-    # Extraction des mots-clés basée sur le contenu
-    keywords = extract_keywords_from_content(text_lower)
-    
-    # Génération des critères de sélection basés sur le contenu
-    selection_criteria = generate_selection_criteria_from_content(text_lower)
-    
-    # Génération des critères d'attribution adaptatifs
-    attribution_criteria = generate_attribution_criteria_from_content(text_lower)
-    
-    result = {
-        "keywords": keywords,
-        "selectionCriteria": selection_criteria,
-        "attributionCriteria": attribution_criteria
-    }
-    
-    print(f"Mots-clés extraits: {len(keywords)}")
-    print(f"Critères sélection: {len(selection_criteria)}")
-    print(f"Critères attribution: {len(attribution_criteria)}")
-    
-    return result
+DOCUMENT À ANALYSER:
+{text_sample}
 
-def extract_keywords_from_content(text):
-    """Extrait les mots-clés pertinents du document"""
-    keywords = []
-    
-    # Mots-clés techniques spécialisés
-    technical_keywords = {
-        "échangeur": ["échangeur", "echangeur", "échangeurs"],
-        "plaques": ["plaques", "plaque"],
-        "nettoyage": ["nettoyage", "nettoyages", "nettoyer", "nettoyant"],
-        "maintenance": ["maintenance", "entretien", "réparation"],
-        "hydraulique": ["hydraulique", "circuit", "fluide"],
-        "thermique": ["thermique", "température", "chaleur"],
-        "CNPE": ["cnpe", "centrale nucléaire", "centrale"],
-        "Chooz": ["chooz"],
-        "intervention": ["intervention", "travaux", "prestation"],
-        "sécurité": ["sécurité", "securite", "sûreté", "mase"],
-        "qualité": ["qualité", "qualite", "iso", "certification"],
-        "délai": ["délai", "delai", "planning", "échéance"]
-    }
-    
-    for keyword, patterns in technical_keywords.items():
-        if any(pattern in text for pattern in patterns):
-            keywords.append(keyword)
-    
-    # Si pas assez de mots-clés spécifiques, ajouter des génériques
-    if len(keywords) < 4:
-        generic_keywords = ["EDF", "Projet", "Technique", "Industriel"]
-        keywords.extend(generic_keywords[:4-len(keywords)])
-    
-    return keywords[:6]  # Limiter à 6 mots-clés
+INSTRUCTIONS:
+1. Identifiez les mots-clés principaux du projet (5-10 mots)
+2. Identifiez les critères de sélection pertinents pour les entreprises
+3. Identifiez les critères d'attribution et leur pondération (total = 100%)
 
-def generate_selection_criteria_from_content(text):
-    """Génère des critères de sélection adaptés au contenu"""
-    criteria = []
-    criteria_id = 1
-    
-    # Critères de sécurité (toujours prioritaires pour EDF)
-    if any(word in text for word in ['nucleaire', 'nucléaire', 'cnpe', 'centrale']):
-        criteria.append({
-            "id": criteria_id,
-            "name": "Habilitation nucléaire",
-            "description": "Personnel habilité pour intervention en centrale nucléaire",
-            "selected": True
-        })
-        criteria_id += 1
-    
-    # Certification MASE (standard EDF)
-    criteria.append({
-        "id": criteria_id,
-        "name": "Certification MASE",
-        "description": "Certification MASE obligatoire pour intervention sur site EDF",
-        "selected": True
-    })
-    criteria_id += 1
-    
-    # Expérience technique spécialisée
-    if any(word in text for word in ['échangeur', 'echangeur', 'nettoyage', 'maintenance']):
-        criteria.append({
-            "id": criteria_id,
-            "name": "Expérience technique spécialisée",
-            "description": "Expérience confirmée sur équipements similaires (échangeurs, nettoyage)",
-            "selected": True
-        })
-        criteria_id += 1
-    
-    # Zone géographique
-    if 'chooz' in text:
-        criteria.append({
-            "id": criteria_id,
-            "name": "Zone d'intervention Grand-Est",
-            "description": "Capacité d'intervention dans la région Grand-Est (Chooz - Ardennes)",
-            "selected": True
-        })
-    else:
-        criteria.append({
-            "id": criteria_id,
-            "name": "Zone d'intervention",
-            "description": "Capacité d'intervention sur la zone du projet",
-            "selected": True
-        })
-    criteria_id += 1
-    
-    # Capacité technique
-    criteria.append({
-        "id": criteria_id,
-        "name": "Capacité technique",
-        "description": "Moyens techniques et humains adaptés au projet",
-        "selected": True
-    })
-    criteria_id += 1
-    
-    # Références similaires
-    criteria.append({
-        "id": criteria_id,
-        "name": "Références sur projets similaires",
-        "description": "Références récentes sur des projets de nature similaire",
-        "selected": True
-    })
-    
-    return criteria
+Répondez UNIQUEMENT avec le format JSON suivant:
+{{
+    "keywords": ["mot1", "mot2", "mot3", "mot4", "mot5"],
+    "selectionCriteria": [
+        {{
+            "id": 1,
+            "name": "Nom du critère",
+            "description": "Description détaillée du critère",
+            "selected": true
+        }},
+        {{
+            "id": 2,
+            "name": "Autre critère",
+            "description": "Description détaillée",
+            "selected": true
+        }}
+    ],
+    "attributionCriteria": [
+        {{
+            "id": 1,
+            "name": "Prix",
+            "weight": 40
+        }},
+        {{
+            "id": 2,
+            "name": "Valeur technique",
+            "weight": 35
+        }},
+        {{
+            "id": 3,
+            "name": "Délai",
+            "weight": 25
+        }}
+    ]
+}}
 
-def generate_attribution_criteria_from_content(text):
-    """Génère des critères d'attribution adaptés au contenu"""
-    criteria = []
-    
-    # Analyser le type de projet pour adapter les pondérations
-    is_technical_project = any(word in text for word in ['technique', 'technologique', 'spécialisé', 'complexe'])
-    is_safety_critical = any(word in text for word in ['nucleaire', 'nucléaire', 'sécurité', 'sûreté'])
-    is_maintenance = any(word in text for word in ['maintenance', 'entretien', 'nettoyage'])
-    
-    # Valeur technique (toujours importante)
-    technical_weight = 45 if is_technical_project else 40
-    criteria.append({
-        "id": 1,
-        "name": "Valeur technique",
-        "weight": technical_weight
-    })
-    
-    # Prix (important mais pas prioritaire sur technique)
-    price_weight = 25 if is_technical_project else 30
-    criteria.append({
-        "id": 2,
-        "name": "Prix",
-        "weight": price_weight
-    })
-    
-    # Délai
-    delay_weight = 15 if is_maintenance else 20
-    criteria.append({
-        "id": 3,
-        "name": "Délai",
-        "weight": delay_weight
-    })
-    
-    # Sécurité/Qualité
-    safety_weight = 15 if is_safety_critical else 10
-    criteria.append({
-        "id": 4,
-        "name": "Sécurité et Qualité",
-        "weight": safety_weight
-    })
-    
-    # Vérifier que le total fait 100
-    total = sum(c["weight"] for c in criteria)
-    if total != 100:
-        criteria[0]["weight"] += (100 - total)
-    
-    return criteria
+Le JSON doit être valide et complet.
+"""
 
-def generate_document(template_type, data, api_key):
-    """Génère un document avec l'API Prisme AI - Version robuste"""
-    
-    print(f"=== GÉNÉRATION DOCUMENT ===")
-    print(f"Type: {template_type}")
-    
-    # Construire le prompt selon le type de document
-    prompt = build_document_prompt(template_type, data)
-    
-    # Essayer avec l'API
-    try:
-        result = call_mistral_api_for_document(prompt, api_key)
-        if result:
+    def _parse_analysis_response(self, response):
+        """Parse and validate API response for document analysis"""
+        try:
+            # Try to extract JSON from response
+            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+            if json_match:
+                json_content = json_match.group(1)
+            else:
+                # Try to find JSON without markdown code blocks
+                json_match = re.search(r'({.*})', response, re.DOTALL)
+                if json_match:
+                    json_content = json_match.group(1)
+                else:
+                    json_content = response
+            
+            # Parse JSON
+            result = json.loads(json_content)
+            
+            # Validate structure
+            if not isinstance(result, dict):
+                raise ValueError("Response is not a valid JSON object")
+            
+            # Ensure required fields
+            if "keywords" not in result or not isinstance(result["keywords"], list):
+                result["keywords"] = ["EDF", "Projet", "Consultation"]
+            
+            if "selectionCriteria" not in result or not isinstance(result["selectionCriteria"], list):
+                result["selectionCriteria"] = []
+            
+            if "attributionCriteria" not in result or not isinstance(result["attributionCriteria"], list):
+                result["attributionCriteria"] = []
+            
+            # Validate and fix selection criteria
+            for i, criterion in enumerate(result["selectionCriteria"]):
+                if not isinstance(criterion, dict):
+                    continue
+                if "id" not in criterion:
+                    criterion["id"] = i + 1
+                if "name" not in criterion:
+                    criterion["name"] = f"Critère {i + 1}"
+                if "description" not in criterion:
+                    criterion["description"] = "Description à compléter"
+                if "selected" not in criterion:
+                    criterion["selected"] = True
+            
+# Validate and fix attribution criteria
+            total_weight = sum(criterion.get("weight", 0) for criterion in result["attributionCriteria"])
+            
+            if total_weight != 100 and result["attributionCriteria"]:
+                # Adjust weights to total 100%
+                if total_weight > 0:
+                    factor = 100 / total_weight
+                    for criterion in result["attributionCriteria"]:
+                        criterion["weight"] = round(criterion["weight"] * factor)
+                
+                # Final adjustment to ensure total is exactly 100%
+                current_total = sum(criterion["weight"] for criterion in result["attributionCriteria"])
+                if current_total != 100 and result["attributionCriteria"]:
+                    result["attributionCriteria"][0]["weight"] += (100 - current_total)
+            
             return result
-    except Exception as e:
-        print(f"Erreur génération API: {e}")
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error validating analysis response: {e}")
+            return None
     
-    # Fallback: génération de base
-    return generate_fallback_document(template_type, data)
-
-def build_document_prompt(template_type, data):
-    """Construit le prompt pour la génération de document"""
+    def _create_fallback_analysis(self, document_text=None):
+        """Create fallback analysis when API fails"""
+        logger.info("Creating fallback analysis")
+        
+        # Extract keywords if document text is provided
+        keywords = self._extract_keywords_from_text(document_text) if document_text else [
+            "EDF", "Projet", "Maintenance", "Consultation", "Technique"
+        ]
+        
+        # Default selection criteria
+        selection_criteria = [
+            {
+                "id": 1,
+                "name": "Certification MASE",
+                "description": "L'entreprise doit être certifiée MASE pour intervenir sur sites EDF",
+                "selected": True
+            },
+            {
+                "id": 2,
+                "name": "Expérience similaire",
+                "description": "L'entreprise doit justifier d'expériences sur des projets similaires",
+                "selected": True
+            },
+            {
+                "id": 3,
+                "name": "Zone d'intervention",
+                "description": "L'entreprise doit pouvoir intervenir dans la zone géographique du projet",
+                "selected": True
+            },
+            {
+                "id": 4,
+                "name": "Capacité technique",
+                "description": "L'entreprise doit disposer des moyens techniques nécessaires",
+                "selected": True
+            }
+        ]
+        
+        # Extract domain-specific criteria if document text is provided
+        if document_text:
+            domain_criteria = self._extract_domain_criteria(document_text)
+            if domain_criteria:
+                selection_criteria.append({
+                    "id": 5,
+                    "name": f"Compétence {domain_criteria}",
+                    "description": f"L'entreprise doit avoir une expertise en {domain_criteria}",
+                    "selected": True
+                })
+        
+        # Default attribution criteria
+        attribution_criteria = [
+            {
+                "id": 1,
+                "name": "Prix",
+                "weight": 40
+            },
+            {
+                "id": 2,
+                "name": "Valeur technique",
+                "weight": 40
+            },
+            {
+                "id": 3,
+                "name": "Délai d'exécution",
+                "weight": 20
+            }
+        ]
+        
+        return {
+            "keywords": keywords,
+            "selectionCriteria": selection_criteria,
+            "attributionCriteria": attribution_criteria
+        }
     
-    doc_descriptions = {
-        "projetMarche": "un projet de marché (clauses administratives et techniques)",
-        "reglementConsultation": "un règlement de consultation",
-        "lettreConsultation": "une lettre de consultation",
-        "grilleEvaluation": "une grille d'évaluation avec les critères"
-    }
+    def _extract_keywords_from_text(self, text):
+        """Extract relevant keywords from document text"""
+        if not text:
+            return ["EDF", "Projet", "Consultation"]
+        
+        # Common technical terms to look for
+        technical_terms = {
+            "électricité": ["électr", "électriq", "courant", "tension", "aliment", "câbl"],
+            "mécanique": ["mécan", "usinage", "tourna", "fraisage", "pièce"],
+            "hydraulique": ["hydraul", "fluid", "eau", "circuit", "pompe", "écoulement"],
+            "maintenance": ["mainten", "entretien", "réparation", "service", "dépannage"],
+            "bâtiment": ["bâtiment", "construction", "génie civil", "maçonnerie"],
+            "échangeur": ["échangeur", "plaque", "thermique", "chaleur", "transfert"],
+            "nettoyage": ["nettoy", "décontam", "lavage", "décapage", "propreté"],
+            "sécurité": ["sécurité", "prévention", "risque", "danger", "protection"]
+        }
+        
+        # Lowercase text for matching
+        text_lower = text.lower()
+        
+        # Find matching technical terms
+        keywords = ["EDF", "Projet"]
+        
+        for term, patterns in technical_terms.items():
+            if any(pattern in text_lower for pattern in patterns):
+                keywords.append(term.capitalize())
+        
+        # Find location if mentioned
+        locations = ["Chooz", "Ardennes", "Grand Est", "Nord-Est"]
+        for location in locations:
+            if location.lower() in text_lower:
+                keywords.append(location)
+                break
+        
+        # Add some general terms if needed
+        if len(keywords) < 5:
+            general_terms = ["Consultation", "Prestation", "Technique", "Industriel"]
+            for term in general_terms:
+                if term not in keywords and len(keywords) < 8:
+                    keywords.append(term)
+        
+        return keywords[:10]  # Limit to 10 keywords
     
-    doc_type = doc_descriptions.get(template_type, "un document")
+    def _extract_domain_criteria(self, text):
+        """Extract domain-specific criteria from document text"""
+        text_lower = text.lower()
+        
+        # Domain detection
+        domains = {
+            "électricité": ["électr", "électriq", "courant", "tension", "aliment", "câbl"],
+            "mécanique": ["mécan", "usinage", "tourna", "fraisage", "pièce"],
+            "hydraulique": ["hydraul", "fluid", "eau", "circuit", "pompe", "écoulement"],
+            "échangeur thermique": ["échangeur", "plaque", "thermique", "chaleur"],
+            "nettoyage industriel": ["nettoy", "décontam", "lavage", "décapage"],
+            "maintenance": ["mainten", "entretien", "réparation", "service"]
+        }
+        
+        for domain, patterns in domains.items():
+            if any(pattern in text_lower for pattern in patterns):
+                return domain
+        
+        return None
     
-    project_title = data.get('title', 'Projet EDF')
-    project_description = data.get('description', '')
-    
-    return f"""Générez {doc_type} professionnel pour EDF.
+    def _create_document_prompt(self, template_type, project_data, selected_companies=None):
+        """Create prompt for document generation"""
+        # Document type descriptions
+        doc_descriptions = {
+            "projetMarche": "un projet de marché (clauses administratives et techniques)",
+            "reglementConsultation": "un règlement de consultation",
+            "lettreConsultation": "une lettre de consultation",
+            "grilleEvaluation": "une grille d'évaluation avec les critères d'attribution"
+        }
+        
+        doc_type = doc_descriptions.get(template_type, "un document de consultation")
+        
+        # Project information
+        project_title = project_data.get('title', 'Projet EDF')
+        project_description = project_data.get('description', '')
+        
+        # Selection criteria
+        selection_criteria = project_data.get('selectionCriteria', [])
+        selection_criteria_text = ""
+        if selection_criteria:
+            selection_criteria_text = "Critères de sélection:\n"
+            for criterion in selection_criteria:
+                if criterion.get('selected', False):
+                    selection_criteria_text += f"- {criterion.get('name')}: {criterion.get('description', '')}\n"
+        
+        # Attribution criteria
+        attribution_criteria = project_data.get('attributionCriteria', [])
+        attribution_criteria_text = ""
+        if attribution_criteria:
+            attribution_criteria_text = "Critères d'attribution:\n"
+            for criterion in attribution_criteria:
+                attribution_criteria_text += f"- {criterion.get('name')}: {criterion.get('weight')}%\n"
+        
+        # Selected companies
+        companies_text = ""
+        if selected_companies:
+            companies_text = "Entreprises consultées:\n"
+            for company in selected_companies:
+                if company.get('selected', True):
+                    companies_text += f"- {company.get('name')} ({company.get('location', 'N/A')})\n"
+        
+        # Build prompt
+        prompt = f"""Générez {doc_type} professionnel pour EDF.
 
 PROJET: {project_title}
 DESCRIPTION: {project_description}
 
+{selection_criteria_text}
+{attribution_criteria_text}
+{companies_text}
+
 Le document doit être structuré, professionnel et conforme aux standards EDF.
-Répondez directement avec le contenu du document sans préambule."""
-
-def call_mistral_api_for_document(prompt, api_key):
-    """Appelle l'API pour la génération de document"""
-    
-    url = "https://api.iag.edf.fr/v2/workspaces/HcA-puQ/webhooks/query"
-    headers = {
-        "Content-Type": "application/json",
-        "knowledge-project-apikey": api_key
-    }
-    
-    data = {
-        "text": prompt,
-        "projectId": "67f785d59e82260f684a217a"
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=60)
+Répondez uniquement avec le contenu du document sans autre commentaire ou code.
+"""
         
-        if response.status_code == 200:
-            result = response.json()
-            content = result.get("answer", "")
-            if content and len(content.strip()) > 50:
-                return content
-        
-        print(f"Erreur API document: {response.status_code}")
-        return None
-        
-    except Exception as e:
-        print(f"Erreur requête document: {e}")
-        return None
-
-def generate_fallback_document(template_type, data):
-    """Génère un document de base en cas d'échec de l'API"""
+        return prompt
     
-    project_title = data.get('title', 'Projet EDF')
-    project_description = data.get('description', '')
+    def _format_document_content(self, content, template_type):
+        """Format and clean the document content"""
+        # Remove any markdown code blocks
+        content = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
+        
+        # Remove any explanatory text before or after the document
+        content = re.sub(r'^.*?Voici (le|la) (document|lettre|règlement|grille).*?\n', '', content, flags=re.DOTALL)
+        content = re.sub(r'\n.*?(J\'espère que ce document|N\'hésitez pas à).*?$', '', content, flags=re.DOTALL)
+        
+        # Final cleanup
+        content = content.strip()
+        
+        return content
     
-    fallback_templates = {
-        "projetMarche": f"""PROJET DE MARCHÉ
+    def _create_fallback_document(self, template_type, project_data, selected_companies=None):
+        """Create fallback document when API fails"""
+        logger.info(f"Creating fallback document for {template_type}")
+        
+        project_title = project_data.get('title', 'Projet EDF')
+        project_description = project_data.get('description', 'Description du projet')
+        
+        # Get today's date
+        today = datetime.now().strftime("%d/%m/%Y")
+        
+        # Templates for different document types
+        templates = {
+            "projetMarche": f"""PROJET DE MARCHÉ
 
 Objet: {project_title}
+Date: {today}
 
-1. OBJET DU MARCHÉ
-{project_description}
+1. DISPOSITIONS GÉNÉRALES
 
-2. DESCRIPTION DES PRESTATIONS
-Les prestations comprennent l'ensemble des travaux, fournitures et services nécessaires.
+1.1 Objet du marché
+Le présent marché a pour objet : {project_description}
 
-3. CLAUSES TECHNIQUES
-- Respect des normes en vigueur
-- Certification des intervenants
-- Respect des consignes de sécurité
+1.2 Documents contractuels
+Le marché est constitué des documents énumérés ci-dessous:
+- Le présent projet de marché
+- Le cahier des charges techniques
+- Les conditions générales d'achat EDF
 
-4. CLAUSES ADMINISTRATIVES
-- Durée d'exécution: À définir
-- Modalités de paiement: Selon conditions générales EDF
-- Garanties: Selon réglementation""",
+2. CONDITIONS D'EXÉCUTION
 
-        "reglementConsultation": f"""RÈGLEMENT DE CONSULTATION
+2.1 Délai d'exécution
+Le délai d'exécution est fixé à [délai] à compter de la notification du marché.
+
+2.2 Conditions techniques
+Les prestations seront exécutées conformément aux règles de l'art et aux normes en vigueur.
+
+3. CLAUSES FINANCIÈRES
+
+3.1 Prix
+Les prix sont fermes et non révisables pendant la durée du marché.
+
+3.2 Modalités de paiement
+Les paiements seront effectués par virement bancaire dans un délai de 60 jours à compter de la réception de la facture.
+
+4. DISPOSITIONS DIVERSES
+
+4.1 Confidentialité
+Le titulaire s'engage à respecter la confidentialité des informations communiquées par EDF.
+
+4.2 Résiliation
+EDF peut résilier le marché en cas de manquement du titulaire à ses obligations contractuelles.
+""",
+
+            "reglementConsultation": f"""RÈGLEMENT DE CONSULTATION
 
 Objet: {project_title}
+Date: {today}
 
-1. MODALITÉS DE LA CONSULTATION
-Cette consultation est lancée selon la procédure adaptée.
+1. OBJET DE LA CONSULTATION
+La présente consultation concerne : {project_description}
 
-2. CONTENU DU DOSSIER
-- Présent règlement
-- Cahier des charges
-- Projet de marché
+2. CONDITIONS DE LA CONSULTATION
 
-3. CRITÈRES D'ATTRIBUTION
-- Valeur technique
-- Prix
-- Délai
-- Sécurité
+2.1 Procédure
+La présente consultation est lancée selon une procédure adaptée.
 
-4. REMISE DES OFFRES
-Date limite: À définir
-Modalités: Dépôt en ligne ou courrier""",
+2.2 Délai de validité des offres
+Le délai de validité des offres est fixé à 90 jours à compter de la date limite de remise des offres.
 
-        "lettreConsultation": f"""LETTRE DE CONSULTATION
+3. PRÉSENTATION DES OFFRES
 
-Objet: {project_title}
+3.1 Documents à produire
+Les candidats devront produire les documents suivants:
+- Lettre de candidature
+- Déclaration sur l'honneur
+- Références sur des prestations similaires
+- Moyens techniques et humains
+- Certifications et qualifications
+- Mémoire technique
+- Proposition financière
+
+4. CRITÈRES D'ATTRIBUTION
+
+Les offres seront jugées selon les critères suivants:
+{"".join([f"- {c.get('name')}: {c.get('weight')}%\n" for c in project_data.get('attributionCriteria', [])])}
+
+5. CONDITIONS D'ENVOI DES OFFRES
+
+Les offres devront être transmises par voie électronique à l'adresse suivante:
+[adresse email]
+
+Date limite de réception des offres: [date]
+""",
+
+            "lettreConsultation": f"""
+Objet : Consultation pour {project_title}
 
 Madame, Monsieur,
 
-EDF vous invite à présenter une offre pour le projet suivant:
+Dans le cadre de nos activités, EDF souhaite lancer une consultation pour:
 {project_description}
 
-Votre entreprise a été présélectionnée pour participer à cette consultation.
+Nous vous invitons à présenter une offre pour cette prestation.
 
-Merci de nous faire parvenir votre offre avant la date limite.
+Vous trouverez en pièces jointes:
+- Le cahier des charges techniques
+- Le règlement de consultation
+- Le projet de marché
 
-Cordialement,
-Équipe Achats EDF""",
+Votre offre devra comprendre:
+- Un mémoire technique détaillant votre proposition
+- Les références de prestations similaires
+- Les certifications et qualifications pertinentes
+- Une proposition financière détaillée
 
-        "grilleEvaluation": f"""GRILLE D'ÉVALUATION
+Les critères d'attribution sont les suivants:
+{"".join([f"- {c.get('name')}: {c.get('weight')}%\n" for c in project_data.get('attributionCriteria', [])])}
+
+La date limite de remise des offres est fixée au [date].
+
+Nous vous remercions de l'attention que vous porterez à notre demande et restons à votre disposition pour tout complément d'information.
+
+Veuillez agréer, Madame, Monsieur, l'expression de nos salutations distinguées.
+
+[Responsable Achats]
+EDF
+""",
+
+            "grilleEvaluation": f"""GRILLE D'ÉVALUATION
 
 Projet: {project_title}
+Date: {today}
 
-CRITÈRES D'ÉVALUATION:
+CRITÈRES D'ÉVALUATION
 
-1. Valeur technique (40%)
-   - Méthodologie
-   - Moyens techniques
-   - Compétences équipe
+{"".join([f"{i+1}. {c.get('name')} ({c.get('weight')}%)\n" for i, c in enumerate(project_data.get('attributionCriteria', []))])}
 
-2. Prix (30%)
-   - Prix global
-   - Détail des coûts
+TABLEAU D'ÉVALUATION
 
-3. Délai (20%)
-   - Planning proposé
-   - Respect échéances
+Entreprises:
+{"".join([f"- {c.get('name')} ({c.get('location', 'N/A')})\n" for c in selected_companies or []])}
 
-4. Sécurité (10%)
-   - Certifications
-   - Procédures sécurité"""
-    }
+Barème de notation:
+- 0/5 : Très insuffisant
+- 1/5 : Insuffisant
+- 2/5 : Moyen
+- 3/5 : Satisfaisant
+- 4/5 : Très satisfaisant
+- 5/5 : Excellent
+
+[Tableau d'évaluation à compléter]
+"""
+        }
+        
+        return templates.get(template_type, f"Document {template_type} pour {project_title}")
+
+def analyze_document(document_text, api_key, agent_id=None):
+    """
+    Analyze a document to extract criteria
     
-    return fallback_templates.get(template_type, f"Document {template_type} pour {project_title}")
+    Args:
+        document_text: Text content of the document
+        api_key: Mistral API key
+        agent_id: Mistral agent ID (optional)
+        
+    Returns:
+        Dictionary with keywords, selection criteria, and attribution criteria
+    """
+    mistral = MistralAPI(api_key, agent_id)
+    return mistral.analyze_document(document_text)
+
+def generate_document(template_type, project_data, api_key, agent_id=None):
+    """
+    Generate a document based on template type and project data
+    
+    Args:
+        template_type: Type of document to generate
+        project_data: Dictionary with project information
+        api_key: Mistral API key
+        agent_id: Mistral agent ID (optional)
+        
+    Returns:
+        Generated document content
+    """
+    mistral = MistralAPI(api_key, agent_id)
+    selected_companies = project_data.get('companies', [])
+    return mistral.generate_document(template_type, project_data, selected_companies)
 
 def get_agent_answer(question, api_key, agent_id):
-    """Interroge l'agent Prisme AI avec gestion d'erreurs"""
+    """
+    Get a direct answer from the Mistral agent
     
-    try:
-        response = call_mistral_api(question, api_key)
-        if response:
-            return str(response)
-        else:
-            return "Désolé, je n'ai pas pu obtenir de réponse."
-    except Exception as e:
-        return f"Erreur: {str(e)}"
+    Args:
+        question: Question to ask
+        api_key: Mistral API key
+        agent_id: Mistral agent ID
+        
+    Returns:
+        Agent's answer as text
+    """
+    mistral = MistralAPI(api_key, agent_id)
+    return mistral._call_api(question) or "Je ne peux pas répondre à cette question pour le moment."
